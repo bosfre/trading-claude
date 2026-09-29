@@ -1,0 +1,4 @@
+ts,version,params,note
+2026-09-28 20:54:23,V3-final,"{"L_h": 800, "N_h": 140, "atr_h": 56, "cost_mult": 1.0, "k": 5.0, "max_lev": 1.0, "risk_frac": 0.02}",run_final.py
+2026-09-28 20:54:27,V3-final,"{"L_h": 800, "N_h": 140, "atr_h": 56, "cost_mult": 1.0, "k": 5.0, "max_lev": 1.0, "risk_frac": 0.02}",run_final.py
+2026-09-28 20:54:27,V3-final-OOS,"{"L_h": 800, "N_h": 140, "atr_h": 56, "cost_mult": 1.0, "k": 5.0, "max_lev": 1.0, "risk_frac": 0.02}",run_final.py --oos
