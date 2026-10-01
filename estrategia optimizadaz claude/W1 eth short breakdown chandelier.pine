@@ -1,4 +1,4 @@
-//@version=5
+//@version=6
 // =============================================================================
 // ETH SHORT-only — Breakdown de rango en tendencia bajista + stop Chandelier
 // Misma lógica en 15m / 1h / 4h: las longitudes se escalan por tiempo
@@ -81,4 +81,4 @@ if time > endT and strategy.position_size < 0
 // ---------------------------------- Gráficos ---------------------------------
 plot(emaTrend, "EMA tendencia", color=color.new(color.orange, 0), linewidth=2)
 plot(strategy.position_size < 0 ? stopPx : na, "Stop trailing", color=color.red, style=plot.style_linebr, linewidth=2)
-plotshape(signal and strategy.position_size == 0, "Señal SHORT", shape.triangledown, location.abovebar, color.red, size=size.tiny)
+plotshape(signal and strategy.position_size == 0, title="Señal SHORT", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.tiny)
