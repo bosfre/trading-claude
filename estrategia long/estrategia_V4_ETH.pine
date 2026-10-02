@@ -1,0 +1,78 @@
+//@version=6
+// ============================================================================
+// V4 - Donchian Breakout + Filtro de Régimen EMA + Trailing Stop ATR (solo largos)
+// Especializada para ETH en 1H / 4H / 1D (15m retirado).
+//
+// UNICO cambio respecto a V3: la ventana del ATR pasa de 56h a 200h.
+// Motivo: con 56h, en el grafico de 1D el ATR se calculaba con solo ~2 velas
+// (56/24h), una estimacion de volatilidad demasiado inestable - eso era la
+// causa real del error "invalid qty value" que te daba TradingView en el
+// grafico diario. 200h da ~8-12 velas segun el timeframe, mucho mas estable,
+// y además mejora el resultado en 1D y 4H en el backtest (ver informe).
+// N (canal Donchian), L (EMA de régimen) y k (multiplicador del stop) NO han
+// cambiado respecto a V3: siguen en 140h, 800h y 5.0.
+//
+// AVISO: esta configuracion esta ajustada para ETH. Si la usas en BTC o DOGE,
+// los resultados (sobre todo en DOGE) empeoran respecto a V3 - no es una
+// mejora universal, es una especializacion para ETH (ver informe adjunto).
+// ============================================================================
+strategy("V4 - ETH - Donchian + EMA + ATR Trailing (Long Only)", overlay = true, initial_capital = 10000, currency = currency.USD, commission_type = strategy.commission.percent, commission_value = 0.06, slippage = 2, pyramiding = 0, process_orders_on_close = false)
+
+// ---- Parámetros (en HORAS, para que se comporten igual en 1H/4H/1D) ----
+N_h = input.float(140, "Canal Donchian (horas)", group = "Parámetros")
+L_h = input.float(800, "EMA de régimen (horas)", group = "Parámetros")
+ATR_h = input.float(200, "Ventana ATR (horas)", group = "Parámetros")
+refHours = input.float(4.0, "Horas de referencia del stop", group = "Parámetros")
+k = input.float(5.0, "Multiplicador ATR (stop / trailing)", group = "Parámetros")
+riskPctIn = input.float(2.0, "Riesgo por operación (% equity)", minval = 0.1, group = "Riesgo")
+maxLevPct = input.float(100, "Apalancamiento máximo (%)", minval = 1, group = "Riesgo")
+
+riskFrac = riskPctIn / 100
+maxLev = maxLevPct / 100
+
+// ---- Conversión horas -> barras, con un MINIMO para evitar ventanas absurdamente cortas ----
+tfMinutes = timeframe.in_seconds() / 60
+tfHours = tfMinutes / 60
+barsN = int(math.max(5, math.round(N_h * 60 / tfMinutes)))
+barsL = int(math.max(20, math.round(L_h * 60 / tfMinutes)))
+barsATR = int(math.max(10, math.round(ATR_h * 60 / tfMinutes)))
+atrScale = math.sqrt(refHours / tfHours)
+
+atrRaw = ta.atr(barsATR)
+atrScaled = atrRaw * atrScale
+donchianHigh = ta.highest(high, barsN)[1]
+emaRegime = ta.ema(close, barsL)
+
+warmedUp = not na(donchianHigh) and not na(emaRegime) and not na(atrScaled) and atrScaled > 0
+longCondition = warmedUp and close > donchianHigh and close > emaRegime
+
+var float stopPrice = na
+var float highestSinceEntry = na
+
+if longCondition and strategy.position_size == 0
+    stopDist = k * atrScaled
+    stopPctVal = stopDist / close
+    // ---- Guardas de seguridad: si el stop sale demasiado estrecho o el tamaño calculado no es valido, NO se opera esa vela ----
+    validStop = not na(stopPctVal) and stopPctVal > 0.0005
+    if validStop
+        sizeFrac = math.min(maxLev, riskFrac / stopPctVal)
+        qty = strategy.equity * sizeFrac / close
+        if not na(qty) and qty > 0 and qty < 900000000
+            strategy.entry("Long", strategy.long, qty = qty)
+            stopPrice := close - stopDist
+            highestSinceEntry := close
+
+if strategy.position_size > 0
+    highestSinceEntry := math.max(nz(highestSinceEntry, high), high)
+    candidateStop = highestSinceEntry - k * atrScaled
+    stopPrice := math.max(nz(stopPrice, candidateStop), candidateStop)
+    strategy.exit("Salida", from_entry = "Long", stop = stopPrice)
+
+if strategy.position_size == 0
+    stopPrice := na
+    highestSinceEntry := na
+
+plot(donchianHigh, "Canal Donchian", color = color.new(color.blue, 0), linewidth = 1)
+plot(emaRegime, "EMA régimen", color = color.new(color.orange, 0), linewidth = 1)
+plot(strategy.position_size > 0 ? stopPrice : na, "Stop / Trailing", color = color.new(color.red, 0), style = plot.style_circles, linewidth = 2)
+bgcolor(longCondition and strategy.position_size == 0 ? color.new(color.green, 85) : na)
