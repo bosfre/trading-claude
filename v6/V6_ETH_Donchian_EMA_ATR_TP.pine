@@ -1,0 +1,86 @@
+//@version=6
+// ============================================================================
+// V6 - ETH - Donchian Breakout + Filtro EMA + Trailing ATR + Take Profit (solo largos)
+// ============================================================================
+// Respecto a V3 (idéntica señal de entrada y trailing):
+//   1) Take profit: cierra la posición si el cierre alcanza entrada + 20 x ATR (0 = desactivado).
+//   2) Riesgo por operación 5 % (V3: 2 %) y apalancamiento máximo 200 % (V3: 100 %).
+//
+// QUÉ ES Y QUÉ NO ES (backtest propio sobre ETHUSDT 2017-2026, costes del repo: 6 pb comisión +
+// 6 pb slippage por lado + funding 0,005 %/8 h; ver informe):
+//   * La mejora de rentabilidad viene sobre todo del TAMAÑO (riesgo 5 %), no de una mejor señal.
+//     El ratio rentabilidad/drawdown es parecido al de V3; el TP solo recorta algo el drawdown.
+//   * Con riesgo 5 %: MDD de backtest ~ -17 % (4H) a -22 % (1H). Remuestreando operaciones el MDD
+//     mediano sale ~ -27 % y el peor 5 % ~ -43 %: planifica un drawdown de 25-45 %.
+//   * Pensada solo para ETH. En BTC (MDD ~ -28 %) y DOGE (MDD ~ -51 %) 5 % es demasiado.
+//   * NO está probada en TradingView (no pude compilarla aquí). Revisa que el nº de operaciones
+//     y los resultados se parezcan a los del informe antes de usarla.
+//   * Con riesgo 2 % y TP 0 es exactamente V3.
+// ============================================================================
+strategy("V6 - ETH - Donchian + EMA + ATR Trailing + TP (Long Only)", overlay = true, initial_capital = 10000, currency = currency.USD, commission_type = strategy.commission.percent, commission_value = 0.06, slippage = 2, pyramiding = 0, process_orders_on_close = false)
+
+// ---- Parámetros (en HORAS, para que se comporten igual en 1H/4H/1D) ----
+N_h = input.float(140, "Canal Donchian (horas)", group = "Parámetros")
+L_h = input.float(800, "EMA de régimen (horas)", group = "Parámetros")
+ATR_h = input.float(56, "Ventana ATR (horas)", group = "Parámetros")
+refHours = input.float(4.0, "Horas de referencia del stop", group = "Parámetros")
+k = input.float(5.0, "Multiplicador ATR (stop / trailing)", group = "Parámetros")
+tpMult = input.float(20.0, "Take profit (múltiplos de ATR; 0 = sin TP)", minval = 0, group = "Parámetros")
+riskPctIn = input.float(5.0, "Riesgo por operación (% equity)", minval = 0.1, group = "Riesgo")
+maxLevPct = input.float(200, "Apalancamiento máximo (%)", minval = 1, group = "Riesgo")
+
+riskFrac = riskPctIn / 100
+maxLev = maxLevPct / 100
+
+// ---- Conversión horas -> barras, con mínimos (idénticos a V3/V4) ----
+tfMinutes = timeframe.in_seconds() / 60
+tfHours = tfMinutes / 60
+barsN = int(math.max(5, math.round(N_h * 60 / tfMinutes)))
+barsL = int(math.max(20, math.round(L_h * 60 / tfMinutes)))
+barsATR = int(math.max(10, math.round(ATR_h * 60 / tfMinutes)))
+atrScale = math.sqrt(refHours / tfHours)
+
+atrRaw = ta.atr(barsATR)
+atrScaled = atrRaw * atrScale
+donchianHigh = ta.highest(high, barsN)[1]
+emaRegime = ta.ema(close, barsL)
+
+warmedUp = not na(donchianHigh) and not na(emaRegime) and not na(atrScaled) and atrScaled > 0
+longCondition = warmedUp and close > donchianHigh and close > emaRegime
+
+var float stopPrice = na
+var float highestSinceEntry = na
+var float atrEntry = na
+
+if longCondition and strategy.position_size == 0
+    stopDist = k * atrScaled
+    stopPctVal = stopDist / close
+    validStop = not na(stopPctVal) and stopPctVal > 0.0005
+    if validStop
+        sizeFrac = math.min(maxLev, riskFrac / stopPctVal)
+        qty = strategy.equity * sizeFrac / close
+        if not na(qty) and qty > 0 and qty < 900000000
+            strategy.entry("Long", strategy.long, qty = qty)
+            stopPrice := close - stopDist
+            highestSinceEntry := close
+            atrEntry := atrScaled
+
+if strategy.position_size > 0
+    highestSinceEntry := math.max(nz(highestSinceEntry, high), high)
+    candidateStop = highestSinceEntry - k * atrScaled
+    stopPrice := math.max(nz(stopPrice, candidateStop), candidateStop)
+    strategy.exit("Salida", from_entry = "Long", stop = stopPrice)
+    // Take profit evaluado al cierre; se ejecuta en la apertura siguiente (igual que en el backtest)
+    if tpMult > 0 and not na(atrEntry) and close >= strategy.position_avg_price + tpMult * atrEntry
+        strategy.close("Long", comment = "TP")
+
+if strategy.position_size == 0
+    stopPrice := na
+    highestSinceEntry := na
+    atrEntry := na
+
+plot(donchianHigh, "Canal Donchian", color = color.new(color.blue, 0), linewidth = 1)
+plot(emaRegime, "EMA régimen", color = color.new(color.orange, 0), linewidth = 1)
+plot(strategy.position_size > 0 ? stopPrice : na, "Stop / Trailing", color = color.new(color.red, 0), style = plot.style_circles, linewidth = 2)
+plot(strategy.position_size > 0 and tpMult > 0 ? strategy.position_avg_price + tpMult * atrEntry : na, "Take profit", color = color.new(color.green, 0), style = plot.style_circles, linewidth = 1)
+bgcolor(longCondition and strategy.position_size == 0 ? color.new(color.green, 85) : na)

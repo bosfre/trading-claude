@@ -1,0 +1,124 @@
+{
+ "1h": {
+  "full": {
+   "N_b": 48,
+   "L_b": 400,
+   "A_b": 14,
+   "sN_b": 168,
+   "sL_b": 1600,
+   "kI": 6.0,
+   "kT": 6,
+   "tp": 20,
+   "xf": 1.0,
+   "tron": 2,
+   "be": 0,
+   "adx": 20,
+   "ent": "hc",
+   "short": 1,
+   "slope": 1
+  },
+  "lean": {
+   "N_b": 48,
+   "L_b": 400,
+   "A_b": 14,
+   "sN_b": 168,
+   "sL_b": 1600,
+   "kI": 6.0,
+   "kT": 6,
+   "tp": 20,
+   "xf": 1.0,
+   "tron": 2,
+   "be": 0,
+   "adx": 20,
+   "ent": "hc",
+   "short": 1,
+   "slope": 1
+  },
+  "removed": [],
+  "score_full": 1.363794580951628,
+  "score_lean": 1.363794580951628
+ },
+ "4h": {
+  "full": {
+   "N_b": 20,
+   "L_b": 100,
+   "A_b": 21,
+   "sN_b": 60,
+   "sL_b": 300,
+   "kI": 6.0,
+   "kT": 12,
+   "tp": 30,
+   "xf": 0.0,
+   "tron": 0,
+   "be": 4,
+   "adx": 20,
+   "ent": "hc",
+   "short": 1,
+   "slope": 1
+  },
+  "lean": {
+   "N_b": 20,
+   "L_b": 100,
+   "A_b": 21,
+   "sN_b": 60,
+   "sL_b": 300,
+   "kI": 6.0,
+   "kT": 12,
+   "tp": 30,
+   "xf": 0.0,
+   "tron": 0,
+   "be": 4,
+   "adx": 0,
+   "ent": "hc",
+   "short": 1,
+   "slope": 1
+  },
+  "removed": [
+   "filtro ADX"
+  ],
+  "score_full": 1.5325642638678032,
+  "score_lean": 1.5325642638678032
+ },
+ "1d": {
+  "full": {
+   "N_b": 15,
+   "L_b": 30,
+   "A_b": 10,
+   "sN_b": 30,
+   "sL_b": 100,
+   "kI": 3.0,
+   "kT": 8,
+   "tp": 30,
+   "xf": 1.0,
+   "tron": 4,
+   "be": 0,
+   "adx": 0,
+   "ent": "hc",
+   "short": 1,
+   "slope": 0
+  },
+  "lean": {
+   "N_b": 15,
+   "L_b": 30,
+   "A_b": 10,
+   "sN_b": 30,
+   "sL_b": 100,
+   "kI": 3.0,
+   "kT": 8,
+   "tp": 30,
+   "xf": 0,
+   "tron": 0,
+   "be": 0,
+   "adx": 0,
+   "ent": "hc",
+   "short": 1,
+   "slope": 0
+  },
+  "removed": [
+   "trailing diferido",
+   "canal de salida"
+  ],
+  "score_full": 1.3891799831651648,
+  "score_lean": 1.3888189613694408
+ }
+}

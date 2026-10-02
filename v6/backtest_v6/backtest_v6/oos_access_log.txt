@@ -1,0 +1,2 @@
+2026-10-03 00:47:30 OOS DESBLOQUEADO: evaluación única de las 3 configuraciones congeladas (final_cfg.json, 'lean'), elegidas solo con datos <=2023
+2026-10-03 00:47:39 OOS DESBLOQUEADO: evaluación única de las 3 configuraciones congeladas (final_cfg.json, 'lean'), elegidas solo con datos <=2023
