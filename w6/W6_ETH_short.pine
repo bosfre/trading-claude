@@ -1,0 +1,120 @@
+//@version=6
+// =====================================================================================
+// W6 - ETH SHORT ONLY  (evolución de W5: entrada por ORDEN STOP en el nivel de ruptura)
+// =====================================================================================
+// Lógica (idéntica en 1H / 4H / 1D; longitudes expresadas en DÍAS):
+//   Régimen : cierre DIARIO previo < EMA diaria previa (solo días ya cerrados)
+//   Nivel   : mínimo de las últimas L días
+//   Entrada : - 1H y 4H  -> orden STOP de venta colocada en el nivel (se ejecuta intrabarra al romperlo;
+//                           si abre por debajo, entra a la apertura). Requiere régimen + cierre < EMA 5 días.
+//             - 1D       -> como W5: cierre < nivel y entrada en la apertura siguiente (la entrada stop
+//                           NO mejoró el 1D en el backtest, por eso no se usa ahí).
+//   Stop    : inicial = entrada + ks * ATR(14); después trailing Chandelier
+//             = mínimo(low, 7 días) + kt * ATR(14), solo puede bajar
+//   Tamaño  : riesgo 3% del equity / distancia al stop, tope de apalancamiento 10x
+//   Costes  : 0.07% por lado (0.05% comisión + 0.02% slippage); el backtest además aplicó el doble de
+//             slippage en las entradas por ruptura y aguantó hasta x8 (ver W6_resultados.md)
+//
+// Presets (parámetros SIN reoptimizar respecto a W5; el único cambio es la ejecución de la entrada):
+//   1H : L=20d ks=1.5 kt=8   régimen EMA100d   entrada stop
+//   4H : L=20d ks=1.5 kt=3   régimen EMA100d   entrada stop
+//   1D : L=60d ks=2.0 kt=4   régimen EMA100d   entrada al cierre (= W5)
+//
+// AVISO: en 1D este script NO alcanza +500% (ni nada parecido): el edge robusto encontrado en 1D es
+// pequeño. Ver W6_resultados.md para la evidencia. Verificar siempre en TradingView.
+// =====================================================================================
+strategy("W6 ETH Short", shorttitle="W6", overlay=true,
+     initial_capital=10000, currency=currency.USD,
+     default_qty_type=strategy.fixed, pyramiding=0,
+     margin_short=10, margin_long=100,
+     commission_type=strategy.commission.percent, commission_value=0.07,
+     slippage=0, process_orders_on_close=false, calc_on_every_tick=false,
+     max_bars_back=5000)
+
+// ---------------- Inputs ----------------
+grpGen = "General"
+preset    = input.string("Auto", "Preset", options=["Auto", "1H", "4H", "1D", "Manual"], group=grpGen)
+entryMode = input.string("Auto", "Modo de entrada", options=["Auto", "Stop intrabarra", "Cierre (W5)"], group=grpGen)
+riskPct   = input.float(3.0, "Riesgo por operación (% equity)", minval=0.1, maxval=10.0, step=0.1, group=grpGen)
+maxLev    = input.float(10.0, "Apalancamiento máximo (x)", minval=1.0, maxval=50.0, step=0.5, group=grpGen)
+
+grpMan = "Parámetros (solo si Preset = Manual)"
+mLd    = input.int(20, "Breakdown: L (días)", minval=2, group=grpMan)
+mKs    = input.float(1.5, "Stop inicial: ks (x ATR)", minval=0.5, step=0.25, group=grpMan)
+mKt    = input.float(8.0, "Trailing Chandelier: kt (x ATR)", minval=1.0, step=0.5, group=grpMan)
+mReg   = input.int(100, "Régimen: EMA diaria (días)", minval=20, group=grpMan)
+
+// ---------------- Resolución del preset (valores simples) ----------------
+tfSec      = timeframe.in_seconds(timeframe.period)
+bpd        = math.max(1, math.round(86400.0 / tfSec))              // barras por día
+autoName   = tfSec <= 5400 ? "1H" : tfSec <= 21600 ? "4H" : "1D"
+presetName = preset == "Auto" ? autoName : preset
+
+Ld     = presetName == "1H" ? 20  : presetName == "4H" ? 20  : presetName == "1D" ? 60  : mLd
+ks     = presetName == "1H" ? 1.5 : presetName == "4H" ? 1.5 : presetName == "1D" ? 2.0 : mKs
+kt     = presetName == "1H" ? 8.0 : presetName == "4H" ? 3.0 : presetName == "1D" ? 4.0 : mKt
+regLen = presetName == "Manual" ? mReg : 100
+useStop = entryMode == "Stop intrabarra" ? true : entryMode == "Cierre (W5)" ? false : (presetName == "1H" or presetName == "4H" or presetName == "Manual")
+
+Lbars  = Ld * bpd          // breakdown
+chBars = 7 * bpd           // ventana del Chandelier (7 días)
+emaLen = 5 * bpd           // EMA de 5 días
+
+// ---------------- Indicadores ----------------
+atr     = ta.atr(14)
+emaFast = ta.ema(close, emaLen)
+lvl     = ta.lowest(low, Lbars)           // mínimo de las L días INCLUIDA esta barra = nivel de la orden para la barra SIGUIENTE
+llPrev  = lvl[1]                          // mínimo de las L días ANTERIORES (modo cierre, como W5)
+lowCh   = ta.lowest(low, chBars)          // Chandelier (incluye la barra actual)
+
+// Régimen diario SIN lookahead: valores del día anterior ya cerrado
+// (en la primera barra de cada día el régimen va un día retrasado respecto al backtest; efecto menor)
+[dClose1, dEma1] = request.security(syminfo.tickerid, "D", [close[1], ta.ema(close, regLen)[1]], lookahead=barmerge.lookahead_on)
+regime = dClose1 < dEma1
+
+// ---------------- Estado ----------------
+lastExitBar = strategy.closedtrades > 0 ? strategy.closedtrades.exit_bar_index(strategy.closedtrades - 1) : -1
+flat        = strategy.position_size == 0
+var float stopPx = na
+
+// ---------------- Entrada modo CIERRE (como W5) ----------------
+sigClose = (not useStop) and flat and bar_index > lastExitBar and barstate.isconfirmed and regime and close < emaFast and close < llPrev and not na(llPrev) and not na(atr)
+
+// ---------------- Entrada modo STOP intrabarra ----------------
+// Se evalúa al cierre de cada barra y deja una orden STOP de venta para la siguiente (se reemplaza cada barra)
+sigStop = useStop and flat and bar_index >= lastExitBar and barstate.isconfirmed and regime and close < emaFast and not na(lvl) and not na(atr)
+
+if sigClose
+    stopDist = ks * atr
+    qty      = math.min(strategy.equity * (riskPct / 100.0) / stopDist, strategy.equity * maxLev / close)
+    stopPx  := close + stopDist
+    strategy.entry("W6", strategy.short, qty=qty)
+    strategy.exit("W6x", from_entry="W6", stop=stopPx)
+
+if sigStop
+    stopDist = ks * atr
+    qty      = math.min(strategy.equity * (riskPct / 100.0) / stopDist, strategy.equity * maxLev / lvl)
+    stopPx  := lvl + stopDist
+    strategy.entry("W6", strategy.short, qty=qty, stop=lvl)
+    strategy.exit("W6x", from_entry="W6", stop=stopPx)
+else if useStop and flat
+    strategy.cancel("W6")
+
+// ---------------- Trailing Chandelier: solo baja, se actualiza al cierre ----------------
+if strategy.position_size < 0 and barstate.isconfirmed
+    trail  = lowCh + kt * atr
+    stopPx := math.min(stopPx, trail)
+    strategy.exit("W6x", from_entry="W6", stop=stopPx)
+
+if strategy.position_size == 0 and not sigClose and not sigStop
+    stopPx := na
+
+// ---------------- Visualización ----------------
+plot(strategy.position_size < 0 ? stopPx : na, "Stop", color=color.new(color.red, 0), style=plot.style_linebr, linewidth=2)
+plot(llPrev, "Mínimo L días", color=color.new(color.orange, 40))
+bgcolor(regime ? color.new(color.red, 92) : na, title="Régimen bajista diario")
+
+var table info = table.new(position.top_right, 1, 1, bgcolor=color.new(color.black, 80), border_width=1)
+if barstate.islast
+    table.cell(info, 0, 0, "W6 [" + presetName + "]  L=" + str.tostring(Ld) + "d  ks=" + str.tostring(ks) + "  kt=" + str.tostring(kt) + "  régimen EMA" + str.tostring(regLen) + "d  entrada: " + (useStop ? "stop" : "cierre"),
+         text_color=color.white, text_size=size.small)
