@@ -1,0 +1,2 @@
+2026-10-03 12:35:07 OOS DESBLOQUEADO: evaluación única de V7 congelado (cortos selectivos N=270h, EMA=1800h, riesgo cortos x0.5; resto = V6); parámetros elegidos solo con datos <=2023
+2026-10-03 17:24:53 OOS 2a mirada (solo VETO): V6 + piramidacion (+4 ATR, 25%, 1 anadido), unica candidata solo-largos que paso el cribado DEV. Regla fijada antes: adoptar solo si Calmar OOS y FULL >= V6 en los 3 TF de ETH

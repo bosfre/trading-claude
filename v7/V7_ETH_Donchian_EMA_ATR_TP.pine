@@ -1,0 +1,124 @@
+//@version=6
+// ============================================================================
+// V7 - ETH - Donchian Breakout + Filtro EMA + Trailing ATR + Take Profit (solo largos)
+// ============================================================================
+// QUÉ ES V7 (resultado honesto de la investigación):
+//   * Las SEÑALES son exactamente las de V6 (Donchian 140 h + EMA 800 h + stop/trailing 5 ATR + TP 20 ATR,
+//     riesgo 5 %, apalancamiento máx. 200 %). Tras ~210 variantes probadas con TRAIN/VAL (<=2023) ninguna
+//     mejora pasó los criterios de robustez, y las dos candidatas finales no superaron el OOS 2024-26:
+//       - cortos selectivos: empeoran en OOS (ETH 4H Calmar 1,39 -> 0,73) -> descartados (y fuera del alcance LONG).
+//       - piramidación +4 ATR x25 %: Calmar OOS 1H 1,20 -> 1,19, 4H 1,39 -> 1,49, 1D 0,56 -> 0,73, pero
+//         +1 a +4 pp de drawdown; no cumplió la regla de veto -> queda como opción EXPERIMENTAL (apagada).
+//   * CORRECCIÓN respecto a V6.pine: en V6 el bloque final "if strategy.position_size == 0" borraba atrEntry en la
+//     propia barra de señal (la orden aún no se había ejecutado), por lo que el TAKE PROFIT NO SE ACTIVABA NUNCA.
+//     V7 usa un indicador de orden pendiente y guarda el precio real de entrada (entryRef). El stop inicial pasa a
+//     ser entryRef - k x ATR(señal), igual que el backtest de Python.
+//   * NO está compilada ni probada en TradingView desde este entorno. Revisa que el nº de operaciones y la fecha de
+//     las entradas se parezcan a trades_V6_ETH_<tf>.csv (backtest Python) antes de fiarte de los resultados.
+//   * Costes del backtest Python: 6 pb comisión + 6 pb slippage por lado (+ slippage extra en stops) + funding.
+//     El 'slippage = 2' de TradingView (2 ticks = 0,02 USDT) es MUCHO más benigno: ajústalo si quieres comparar.
+//   * Con riesgo 5 % planifica drawdowns de 25-45 % (remuestreo de operaciones): backtest 1H -22,5 %, 4H -17,2 %, 1D -18,8 %.
+// ============================================================================
+strategy("V7 - ETH - Donchian + EMA + ATR Trailing + TP (Long Only)", overlay = true, initial_capital = 10000, currency = currency.USD, commission_type = strategy.commission.percent, commission_value = 0.06, slippage = 2, pyramiding = 1, process_orders_on_close = false)
+
+// ---- Parámetros (en HORAS, para que se comporten igual en 1H/4H/1D) ----
+N_h = input.float(140, "Canal Donchian (horas)", group = "Parámetros")
+L_h = input.float(800, "EMA de régimen (horas)", group = "Parámetros")
+ATR_h = input.float(56, "Ventana ATR (horas)", group = "Parámetros")
+refHours = input.float(4.0, "Horas de referencia del stop", group = "Parámetros")
+k = input.float(5.0, "Multiplicador ATR (stop / trailing)", group = "Parámetros")
+tpMult = input.float(20.0, "Take profit (múltiplos de ATR; 0 = sin TP)", minval = 0, group = "Parámetros")
+riskPctIn = input.float(5.0, "Riesgo por operación (% equity)", minval = 0.1, group = "Riesgo")
+maxLevPct = input.float(200, "Apalancamiento máximo (%)", minval = 1, group = "Riesgo")
+
+// ---- EXPERIMENTAL (apagado por defecto = V6 puro) ----
+usePyr = input.bool(false, "Piramidación (experimental, no validada)", group = "Experimental")
+pyrAt = input.float(4.0, "Añadir cuando el cierre supere entrada + X ATR", minval = 0.5, group = "Experimental")
+pyrFrac = input.float(0.25, "Tamaño del añadido (fracción del inicial)", minval = 0.05, maxval = 1.0, group = "Experimental")
+
+riskFrac = riskPctIn / 100
+maxLev = maxLevPct / 100
+
+// ---- Conversión horas -> barras, con mínimos (idénticos a V3/V4/V6) ----
+tfMinutes = timeframe.in_seconds() / 60
+tfHours = tfMinutes / 60
+barsN = int(math.max(5, math.round(N_h * 60 / tfMinutes)))
+barsL = int(math.max(20, math.round(L_h * 60 / tfMinutes)))
+barsATR = int(math.max(10, math.round(ATR_h * 60 / tfMinutes)))
+atrScale = math.sqrt(refHours / tfHours)
+
+atrRaw = ta.atr(barsATR)
+atrScaled = atrRaw * atrScale
+donchianHigh = ta.highest(high, barsN)[1]
+emaRegime = ta.ema(close, barsL)
+
+warmedUp = not na(donchianHigh) and not na(emaRegime) and not na(atrScaled) and atrScaled > 0
+longCondition = warmedUp and close > donchianHigh and close > emaRegime
+
+var float stopPrice = na
+var float highestSinceEntry = na
+var float atrEntry = na
+var float entryRef = na
+var float qty0 = na
+var bool pending = false
+var int pendingBar = 0
+var bool addDone = false
+
+// La orden de entrada se ejecuta en la apertura siguiente: mientras esté pendiente no se debe borrar el estado.
+if strategy.position_size > 0
+    pending := false
+if pending and strategy.position_size == 0 and bar_index > pendingBar + 1
+    pending := false
+
+if longCondition and strategy.position_size == 0 and not pending
+    stopDist = k * atrScaled
+    stopPctVal = stopDist / close
+    validStop = not na(stopPctVal) and stopPctVal > 0.0005
+    if validStop
+        sizeFrac = math.min(maxLev, riskFrac / stopPctVal)
+        qty = strategy.equity * sizeFrac / close
+        if not na(qty) and qty > 0 and qty < 900000000
+            strategy.entry("Long", strategy.long, qty = qty)
+            pending := true
+            pendingBar := bar_index
+            atrEntry := atrScaled
+            qty0 := qty
+            addDone := false
+            entryRef := na
+
+if strategy.position_size > 0
+    if na(entryRef)
+        // primera barra con posición: precio real de entrada y stop inicial = entrada - k x ATR(señal)
+        entryRef := strategy.position_avg_price
+        stopPrice := entryRef - k * atrEntry
+        highestSinceEntry := entryRef
+    highestSinceEntry := math.max(highestSinceEntry, high)
+    candidateStop = highestSinceEntry - k * atrScaled
+    stopPrice := math.max(stopPrice, candidateStop)
+    strategy.exit("Salida", from_entry = "Long", stop = stopPrice)
+    if addDone
+        strategy.exit("SalidaAdd", from_entry = "Add", stop = stopPrice)
+    // Take profit evaluado al cierre; se ejecuta en la apertura siguiente (igual que en el backtest)
+    if tpMult > 0 and not na(atrEntry) and close >= entryRef + tpMult * atrEntry
+        strategy.close_all(comment = "TP")
+    // Piramidación experimental (apagada por defecto): un único añadido, sin superar el apalancamiento máximo
+    if usePyr and not addDone and not na(qty0) and close >= entryRef + pyrAt * atrEntry
+        capQty = math.max(0.0, strategy.equity * maxLev / close - strategy.position_size)
+        addQty = math.min(pyrFrac * qty0, capQty)
+        if addQty > 0
+            strategy.entry("Add", strategy.long, qty = addQty)
+            addDone := true
+
+if strategy.position_size == 0 and not pending
+    stopPrice := na
+    highestSinceEntry := na
+    atrEntry := na
+    entryRef := na
+    qty0 := na
+    addDone := false
+
+plot(donchianHigh, "Canal Donchian", color = color.new(color.blue, 0), linewidth = 1)
+plot(emaRegime, "EMA régimen", color = color.new(color.orange, 0), linewidth = 1)
+plot(strategy.position_size > 0 ? stopPrice : na, "Stop / Trailing", color = color.new(color.red, 0), style = plot.style_circles, linewidth = 2)
+plot(strategy.position_size > 0 and tpMult > 0 and not na(entryRef) ? entryRef + tpMult * atrEntry : na, "Take profit", color = color.new(color.green, 0), style = plot.style_circles, linewidth = 1)
+bgcolor(longCondition and strategy.position_size == 0 ? color.new(color.green, 85) : na)
