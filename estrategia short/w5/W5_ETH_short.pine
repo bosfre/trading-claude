@@ -1,0 +1,101 @@
+//@version=6
+// =====================================================================================
+// W5 - ETH SHORT ONLY (breakdown de mínimos + régimen bajista diario + Chandelier)
+// =====================================================================================
+// Lógica (idéntica en 1H / 4H / 1D; todas las longitudes expresadas en DÍAS):
+//   Régimen : cierre DIARIO previo < EMA diaria previa (solo información de días ya cerrados)
+//   Entrada : cierre < mínimo de las últimas L días (excluida la barra actual)  Y  cierre < EMA 5 días
+//             -> orden de venta que se ejecuta en la apertura de la barra siguiente
+//   Stop    : inicial = entrada + ks * ATR(14); después trailing Chandelier
+//             = mínimo(low, 7 días) + kt * ATR(14), solo puede bajar (nunca se aleja)
+//   Tamaño  : riesgo 3% del equity / distancia al stop, con tope de apalancamiento 10x
+//   Costes  : 0.07% por lado (0.05% comisión + 0.02% slippage), como en el backtest
+//
+// Presets (Auto detecta la temporalidad del gráfico):
+//   1H : L=20d  ks=1.5  kt=8   régimen EMA100d   <- validado: robusto
+//   4H : L=20d  ks=1.5  kt=3   régimen EMA100d   <- validado: moderado, más frágil
+//   1D : L=60d  ks=2.0  kt=4   régimen EMA100d   <- edge mínimo, NO validado como mejora
+//
+// Resultados en backtest propio (ETHUSDT Binance 2017-08 -> 2026-01, ver W5_resultados.md).
+// OJO: verificar siempre en TradingView con tus datos (ETHUSD) y tu periodo.
+// =====================================================================================
+strategy("W5 ETH Short", shorttitle="W5", overlay=true,
+     initial_capital=10000, currency=currency.USD,
+     default_qty_type=strategy.fixed, pyramiding=0,
+     margin_short=10, margin_long=100,
+     commission_type=strategy.commission.percent, commission_value=0.07,
+     slippage=0, process_orders_on_close=false, calc_on_every_tick=false,
+     max_bars_back=5000)
+
+// ---------------- Inputs ----------------
+grpGen = "General"
+preset  = input.string("Auto", "Preset", options=["Auto", "1H", "4H", "1D", "Manual"], group=grpGen)
+riskPct = input.float(3.0, "Riesgo por operación (% equity)", minval=0.1, maxval=10.0, step=0.1, group=grpGen)
+maxLev  = input.float(10.0, "Apalancamiento máximo (x)", minval=1.0, maxval=50.0, step=0.5, group=grpGen)
+
+grpMan = "Parámetros (solo si Preset = Manual)"
+mLd    = input.int(20, "Breakdown: L (días)", minval=2, group=grpMan)
+mKs    = input.float(1.5, "Stop inicial: ks (x ATR)", minval=0.5, step=0.25, group=grpMan)
+mKt    = input.float(8.0, "Trailing Chandelier: kt (x ATR)", minval=1.0, step=0.5, group=grpMan)
+mReg   = input.int(100, "Régimen: EMA diaria (días)", minval=20, group=grpMan)
+
+// ---------------- Resolución del preset (valores simples) ----------------
+tfSec      = timeframe.in_seconds(timeframe.period)
+bpd        = math.max(1, math.round(86400.0 / tfSec))              // barras por día
+autoName   = tfSec <= 5400 ? "1H" : tfSec <= 21600 ? "4H" : "1D"
+presetName = preset == "Auto" ? autoName : preset
+
+Ld     = presetName == "1H" ? 20  : presetName == "4H" ? 20  : presetName == "1D" ? 60  : mLd
+ks     = presetName == "1H" ? 1.5 : presetName == "4H" ? 1.5 : presetName == "1D" ? 2.0 : mKs
+kt     = presetName == "1H" ? 8.0 : presetName == "4H" ? 3.0 : presetName == "1D" ? 4.0 : mKt
+regLen = presetName == "Manual" ? mReg : 100
+
+Lbars  = Ld * bpd          // breakdown
+chBars = 7 * bpd           // ventana del Chandelier (7 días)
+emaLen = 5 * bpd           // EMA de 5 días
+
+// ---------------- Indicadores ----------------
+atr     = ta.atr(14)
+emaFast = ta.ema(close, emaLen)
+llPrev  = ta.lowest(low, Lbars)[1]        // mínimo de las L días ANTERIORES
+lowCh   = ta.lowest(low, chBars)          // incluye la barra actual (Chandelier)
+
+// Régimen diario SIN lookahead: valores del día anterior ya cerrado
+[dClose1, dEma1] = request.security(syminfo.tickerid, "D", [close[1], ta.ema(close, regLen)[1]], lookahead=barmerge.lookahead_on)
+regime = dClose1 < dEma1
+
+// ---------------- Señal ----------------
+lastExitBar = strategy.closedtrades > 0 ? strategy.closedtrades.exit_bar_index(strategy.closedtrades - 1) : -1
+flat        = strategy.position_size == 0
+canEnter    = flat and bar_index > lastExitBar and barstate.isconfirmed
+sigShort    = canEnter and regime and close < emaFast and close < llPrev and not na(llPrev) and not na(atr)
+
+var float stopPx = na
+
+if sigShort
+    stopDist = ks * atr
+    qtyRisk  = strategy.equity * (riskPct / 100.0) / stopDist
+    qtyCap   = strategy.equity * maxLev / close
+    qty      = math.min(qtyRisk, qtyCap)
+    stopPx  := close + stopDist
+    strategy.entry("W5", strategy.short, qty=qty)
+    strategy.exit("W5x", from_entry="W5", stop=stopPx)
+
+// Trailing Chandelier: solo baja, se actualiza al cierre y actúa desde la barra siguiente
+if strategy.position_size < 0 and barstate.isconfirmed
+    trail  = lowCh + kt * atr
+    stopPx := math.min(stopPx, trail)
+    strategy.exit("W5x", from_entry="W5", stop=stopPx)
+
+if strategy.position_size == 0 and not sigShort
+    stopPx := na
+
+// ---------------- Visualización ----------------
+plot(strategy.position_size < 0 ? stopPx : na, "Stop", color=color.new(color.red, 0), style=plot.style_linebr, linewidth=2)
+plot(llPrev, "Mínimo L días", color=color.new(color.orange, 40))
+bgcolor(regime ? color.new(color.red, 92) : na, title="Régimen bajista diario")
+
+var table info = table.new(position.top_right, 1, 1, bgcolor=color.new(color.black, 80), border_width=1)
+if barstate.islast
+    table.cell(info, 0, 0, "W5 [" + presetName + "]  L=" + str.tostring(Ld) + "d  ks=" + str.tostring(ks) + "  kt=" + str.tostring(kt) + "  régimen EMA" + str.tostring(regLen) + "d",
+         text_color=color.white, text_size=size.small)
