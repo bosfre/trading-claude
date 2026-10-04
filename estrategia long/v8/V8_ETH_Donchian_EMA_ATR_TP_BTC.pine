@@ -1,0 +1,148 @@
+//@version=6
+// ============================================================================
+// V8 - ETH - Donchian Breakout + Filtro EMA + Trailing ATR + Take Profit + CONFIRMACIÓN DE RÉGIMEN DE BTC (solo largos)
+// ============================================================================
+// QUÉ ES V8:
+//   V7 (señales de V6: Donchian 140 h, EMA 800 h, stop/trailing 5 ATR, TP 20 ATR, riesgo 5 %, apalancamiento máx. 200 %)
+//   + UN cambio estructural con información nueva: solo se abren largos si BTC también está en tendencia alcista
+//     (cierre de BTC > EMA de BTC de 800 h, la misma EMA que se exige a ETH; no hay parámetro nuevo ajustado).
+//   Se aplica a las tres temporalidades (1H, 4H, 1D). Con "Filtro de régimen BTC" desactivado esta estrategia es V7.
+//
+// RESULTADOS DEL BACKTEST (ETH, Python, costes del repo; ver informe_V8.md):
+//   2017-08 -> 2026-01-10 (V7 -> V8): 1H +824,8 % -> +1.260,5 % (DD -22,5 % -> -17,9 %); 4H +680,2 % -> +998,3 % (DD -17,2 % igual);
+//   1D +385,0 % -> +513,1 % (DD -18,8 % -> -17,3 %).
+//   OOS 2024-26 (Calmar): 1H 1,20 -> 1,71; 4H 1,38 -> 1,76; 1D 0,56 -> 0,72. 1D 2015-17 (prueba hacia atrás): Calmar 6,2 -> 10,4.
+//   A igual drawdown, +18,7 / +8,5 / +3,0 pp de CAGR (1H / 4H / 1D). Aguanta costes x2 y x3.
+//   LIMITACIONES HONESTAS: (1) OOS virgen 2026-01-11 -> 2026-10-03 (solo 6-13 operaciones): cambio en Calmar 1H +0,10, 4H -0,22,
+//   1D -0,55 (rentabilidades ~0 en ambas versiones): no confirma ni refuta. (2) En ETC (activo nunca usado) el efecto es neutro.
+//   (3) Buena parte de la mejora se concentra en 2021 y 2024. (4) Mejora consistente pero no estadísticamente concluyente
+//   (años 2018-25: V8>V7 en 6/8, 7/8 y 6/8 años; t ~ 1,4-1,8).
+//
+// NOTAS DE IMPLEMENTACIÓN (no compilada ni probada en TradingView desde este entorno):
+//   * Hereda de V7 la corrección del TP (V6.pine no lo activaba nunca; ver informe).
+//   * margin_long = 50: permite el apalancamiento hasta 2x que pide el dimensionamiento. V6.pine y V7.pine no declaraban margen
+//     (TradingView usa 100 % = sin apalancamiento) y las entradas de más de 1x podrían recortarse o rechazarse.
+//   * El filtro usa request.security sobre el símbolo de BTC elegido (por defecto BINANCE:BTCUSDT). Si el símbolo de BTC no tiene
+//     datos en una barra de ETH (p. ej. ETH 2015-2017 con BINANCE:BTCUSDT), el filtro no bloquea. Para 1D desde 2015 usa un BTCUSD
+//     con histórico largo (p. ej. BITSTAMP:BTCUSD).
+//   * Costes del backtest Python: 6 pb comisión + 6 pb slippage por lado (+ slippage extra en stops) + funding. El 'slippage = 2'
+//     de TradingView (2 ticks = 0,02 USDT) es mucho más benigno.
+//   * Con riesgo 5 % planifica drawdowns de 25-45 % (remuestreo de operaciones).
+// ============================================================================
+strategy("V8 - ETH - Donchian + EMA + ATR Trailing + TP + Filtro BTC (Long Only)", overlay = true, initial_capital = 10000, currency = currency.USD, commission_type = strategy.commission.percent, commission_value = 0.06, slippage = 2, pyramiding = 1, process_orders_on_close = false, margin_long = 50, margin_short = 50)
+
+// ---- Parámetros (en HORAS, para que se comporten igual en 1H/4H/1D) ----
+N_h = input.float(140, "Canal Donchian (horas)", group = "Parámetros")
+L_h = input.float(800, "EMA de régimen (horas)", group = "Parámetros")
+ATR_h = input.float(56, "Ventana ATR (horas)", group = "Parámetros")
+refHours = input.float(4.0, "Horas de referencia del stop", group = "Parámetros")
+k = input.float(5.0, "Multiplicador ATR (stop / trailing)", group = "Parámetros")
+tpMult = input.float(20.0, "Take profit (múltiplos de ATR; 0 = sin TP)", minval = 0, group = "Parámetros")
+riskPctIn = input.float(5.0, "Riesgo por operación (% equity)", minval = 0.1, group = "Riesgo")
+maxLevPct = input.float(200, "Apalancamiento máximo (%)", minval = 1, group = "Riesgo")
+
+// ---- V8: confirmación de régimen de BTC ----
+useBtcFilter = input.bool(true, "Filtro de régimen BTC (desactivado = V7)", group = "V8 - Filtro BTC")
+btcSym = input.symbol("BINANCE:BTCUSDT", "Símbolo de BTC de referencia", group = "V8 - Filtro BTC")
+btcEmaHours = input.float(800, "EMA de BTC (horas)", group = "V8 - Filtro BTC")
+
+// ---- EXPERIMENTAL (apagado por defecto) ----
+usePyr = input.bool(false, "Piramidación (experimental, no validada)", group = "Experimental")
+pyrAt = input.float(4.0, "Añadir cuando el cierre supere entrada + X ATR", minval = 0.5, group = "Experimental")
+pyrFrac = input.float(0.25, "Tamaño del añadido (fracción del inicial)", minval = 0.05, maxval = 1.0, group = "Experimental")
+
+riskFrac = riskPctIn / 100
+maxLev = maxLevPct / 100
+
+// ---- Conversión horas -> barras, con mínimos (idénticos a V3/V4/V6/V7) ----
+tfMinutes = timeframe.in_seconds() / 60
+tfHours = tfMinutes / 60
+barsN = int(math.max(5, math.round(N_h * 60 / tfMinutes)))
+barsL = int(math.max(20, math.round(L_h * 60 / tfMinutes)))
+barsATR = int(math.max(10, math.round(ATR_h * 60 / tfMinutes)))
+barsBtc = int(math.max(20, math.round(btcEmaHours * 60 / tfMinutes)))
+atrScale = math.sqrt(refHours / tfHours)
+
+atrRaw = ta.atr(barsATR)
+atrScaled = atrRaw * atrScale
+donchianHigh = ta.highest(high, barsN)[1]
+emaRegime = ta.ema(close, barsL)
+
+// Régimen de BTC (misma temporalidad del gráfico, sin mirar el futuro)
+btcClose = request.security(btcSym, timeframe.period, close, lookahead = barmerge.lookahead_off)
+btcEma = request.security(btcSym, timeframe.period, ta.ema(close, barsBtc), lookahead = barmerge.lookahead_off)
+btcOk = not useBtcFilter or na(btcClose) or na(btcEma) or btcClose > btcEma
+
+warmedUp = not na(donchianHigh) and not na(emaRegime) and not na(atrScaled) and atrScaled > 0
+ethSignal = warmedUp and close > donchianHigh and close > emaRegime
+longCondition = ethSignal and btcOk
+
+var float stopPrice = na
+var float highestSinceEntry = na
+var float atrEntry = na
+var float entryRef = na
+var float qty0 = na
+var bool pending = false
+var int pendingBar = 0
+var bool addDone = false
+
+// La orden de entrada se ejecuta en la apertura siguiente: mientras esté pendiente no se debe borrar el estado.
+if strategy.position_size > 0
+    pending := false
+if pending and strategy.position_size == 0 and bar_index > pendingBar + 1
+    pending := false
+
+if longCondition and strategy.position_size == 0 and not pending
+    stopDist = k * atrScaled
+    stopPctVal = stopDist / close
+    validStop = not na(stopPctVal) and stopPctVal > 0.0005
+    if validStop
+        sizeFrac = math.min(maxLev, riskFrac / stopPctVal)
+        qty = strategy.equity * sizeFrac / close
+        if not na(qty) and qty > 0 and qty < 900000000
+            strategy.entry("Long", strategy.long, qty = qty)
+            pending := true
+            pendingBar := bar_index
+            atrEntry := atrScaled
+            qty0 := qty
+            addDone := false
+            entryRef := na
+
+if strategy.position_size > 0
+    if na(entryRef)
+        // primera barra con posición: precio real de entrada y stop inicial = entrada - k x ATR(señal)
+        entryRef := strategy.position_avg_price
+        stopPrice := entryRef - k * atrEntry
+        highestSinceEntry := entryRef
+    highestSinceEntry := math.max(highestSinceEntry, high)
+    candidateStop = highestSinceEntry - k * atrScaled
+    stopPrice := math.max(stopPrice, candidateStop)
+    strategy.exit("Salida", from_entry = "Long", stop = stopPrice)
+    if addDone
+        strategy.exit("SalidaAdd", from_entry = "Add", stop = stopPrice)
+    // Take profit evaluado al cierre; se ejecuta en la apertura siguiente (igual que en el backtest)
+    if tpMult > 0 and not na(atrEntry) and close >= entryRef + tpMult * atrEntry
+        strategy.close_all(comment = "TP")
+    // Piramidación experimental (apagada por defecto): un único añadido, sin superar el apalancamiento máximo
+    if usePyr and not addDone and not na(qty0) and close >= entryRef + pyrAt * atrEntry
+        capQty = math.max(0.0, strategy.equity * maxLev / close - strategy.position_size)
+        addQty = math.min(pyrFrac * qty0, capQty)
+        if addQty > 0
+            strategy.entry("Add", strategy.long, qty = addQty)
+            addDone := true
+
+if strategy.position_size == 0 and not pending
+    stopPrice := na
+    highestSinceEntry := na
+    atrEntry := na
+    entryRef := na
+    qty0 := na
+    addDone := false
+
+plot(donchianHigh, "Canal Donchian", color = color.new(color.blue, 0), linewidth = 1)
+plot(emaRegime, "EMA régimen", color = color.new(color.orange, 0), linewidth = 1)
+plot(strategy.position_size > 0 ? stopPrice : na, "Stop / Trailing", color = color.new(color.red, 0), style = plot.style_circles, linewidth = 2)
+plot(strategy.position_size > 0 and tpMult > 0 and not na(entryRef) ? entryRef + tpMult * atrEntry : na, "Take profit", color = color.new(color.green, 0), style = plot.style_circles, linewidth = 1)
+bgcolor(longCondition and strategy.position_size == 0 ? color.new(color.green, 85) : na)
+// Sombrea en rojo claro las barras en las que el filtro de BTC bloquea una señal que ETH sí daría
+bgcolor(ethSignal and not btcOk and strategy.position_size == 0 ? color.new(color.red, 88) : na)
