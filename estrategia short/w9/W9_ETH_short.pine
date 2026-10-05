@@ -1,0 +1,177 @@
+//@version=6
+// =============================================================================
+// w9 — ETH SHORT-only — Régimen bajista de largo plazo + (ruptura de mínimos | pullback fallido)
+//      + filtro de volatilidad + stop Chandelier   (w9 = w8 + mejoras de calidad por timeframe)
+//
+// CAMBIOS RESPECTO A w8 (todo lo demás es idéntico; ver w9_backtest/W9_resultados.md):
+//   1H : + filtro de EXTENSIÓN (no entrar si (EMA régimen - close)/ATR_eq > 9)
+//        + TOMA PARCIAL del 25 % de la posición a 1.5 ATR_eq de beneficio
+//        + riesgo por operación 4 % -> 6 % (a igual rentabilidad que w8 con menos DD, mayor PF y win rate)
+//   4H : sin cambios (extensión y toma parcial disponibles pero DESACTIVADAS por defecto: el walk-forward
+//        no respaldó el filtro en 4H; activa extH4=9 y tpPctH4=25 para probarlos)
+//   1D : EMA rápida del pullback 40 -> 55 (barras de 4h, ≈ 9 días). Extensión y toma parcial desactivadas.
+//   w8 ya difería de w4 en el multiplicador del stop: 1H 3.0 | 4H 3.0 | 1D 2.0.
+//   El filtro de extensión es una apuesta de régimen: recorta entradas "extendidas" que en el crash de 2018
+//   fueron muy rentables y evita las de 2019/2022/2024/2025. Verifica con tus datos.
+// Misma lógica en 1H / 4H / 1D: las longitudes se definen en "barras de 4h" y se escalan por tiempo.
+//
+// RÉGIMEN: close < EMA(emaLen)   (EMA 600 en barras de 4h ≈ 100 días)
+// FILTRO DE VOLATILIDAD: no entrar si ATR% (ATR_eq/close) > percentil 75 de las últimas 750 barras de 4h
+//   (evita vender capitulaciones, donde los rebotes son violentos).
+// ENTRADA SHORT (al cierre de la barra -> orden a mercado en la apertura siguiente). Vale UNA de dos:
+//   A) Ruptura:  close < mínimo de las `lookLen` barras ANTERIORES
+//   B) Pullback: close cruza por debajo de la EMA rápida (emaFast) y EMA rápida < EMA de régimen
+//   Ambas exigen régimen bajista y haber cargado al menos `emaLen` barras (calentamiento).
+// SALIDA (solo stop dinámico, sin take profit):
+//   stop inicial  = close_señal + mult * ATR_eq
+//   trailing      = min(stop previo, mínimo_desde_entrada + mult * ATR_eq), solo baja
+// TAMAÑO: riesgo fijo por operación (% del equity) / distancia al stop, con tope de apalancamiento.
+//
+// ATR_eq = ATR(atrLen) * sqrt(f): normaliza la volatilidad de cada timeframe a "equivalente 4h".
+//
+// NOTAS DE USO
+//  * Validado solo en ETHUSDT 1H, 4H y 1D. Otros timeframes/activos: no probado.
+//    En 4H el OOS (2024-2026) mejora con mult 3.0 (+22 % en backtest) pero sigue siendo la temporalidad más frágil.
+//  * Riesgo por operación por timeframe (presupuesto de drawdown <= 25 % en el in-sample):
+//    w8: 1H 4 %, 4H 4 %, 1D 5 %. w9 sube 1H a 6 % (ver cabecera). Subirlo escala rentabilidad y drawdown a la vez.
+//  * Las EMAs son recursivas (equivalentes a pandas ewm(adjust=False)): ta.ema() no valdría con
+//    EMA 600 en 1H (2400 barras) por el límite de 5000 de Pine en algunas configuraciones.
+//  * Costes: comisión 0,05 % + slippage 0,03 % por lado = 0,08 % por lado, modelado como
+//    comisión porcentual (slippage=0). NO uses slippage en ticks: es un importe fijo y con ETH a
+//    100-300 USD (2018-2019) equivale a 0,3-1 % por lado.
+//  * Funding de perpetuos NO incluido. Ejecución: señal al cierre, entrada en la apertura siguiente.
+//  * Para ver años completos en 1H hace falta historial largo (Deep Backtesting / plan Premium).
+// =============================================================================
+strategy("w9 - ETH SHORT Breakdown+Pullback+Regime+VolFilter", overlay=true,
+     initial_capital=10000, pyramiding=0,
+     default_qty_type=strategy.fixed, default_qty_value=1,
+     commission_type=strategy.commission.percent, commission_value=0.08,
+     slippage=0, margin_short=50,
+     process_orders_on_close=false, calc_on_every_tick=false)
+
+// ------------------------------- Parámetros ----------------------------------
+emaBase  = input.int(600,   "EMA de régimen (barras de 4h)", minval=10, group="Estrategia")
+lookBase = input.int(45,    "Ruptura: mínimo de N barras (barras de 4h)", minval=5, group="Estrategia")
+fastBase = input.int(40,    "EMA rápida del pullback 1H/4H (barras de 4h)", minval=5, group="Estrategia")
+fastD1   = input.int(55,    "EMA rápida del pullback 1D (barras de 4h)", minval=5, group="Estrategia")
+atrBase  = input.int(14,    "ATR (barras de 4h)", minval=2, group="Estrategia")
+multH1   = input.float(3.0, "Multiplicador ATR del stop 1H", minval=0.5, step=0.25, group="Estrategia")
+multH4   = input.float(3.0, "Multiplicador ATR del stop 4H", minval=0.5, step=0.25, group="Estrategia")
+multD1   = input.float(2.0, "Multiplicador ATR del stop 1D", minval=0.5, step=0.25, group="Estrategia")
+
+volBase  = input.int(750,   "Filtro vol: ventana (barras de 4h)", minval=50, group="Estrategia")
+volPct   = input.float(75,  "Filtro vol: percentil máximo de ATR%", minval=50, maxval=100, step=5, group="Estrategia")
+
+riskH1   = input.float(6.0, "Riesgo por operación 1H (% equity)", minval=0.1, maxval=10, step=0.25, group="Riesgo")
+riskH4   = input.float(4.0, "Riesgo por operación 4H (% equity)", minval=0.1, maxval=10, step=0.25, group="Riesgo")
+riskD1   = input.float(5.0, "Riesgo por operación 1D (% equity)", minval=0.1, maxval=10, step=0.25, group="Riesgo")
+maxLev   = input.float(2.0, "Apalancamiento máximo (nocional/equity)", minval=0.5, step=0.5, group="Riesgo")
+
+extH1    = input.float(9.0, "Filtro extensión 1H: máx (EMA régimen - close)/ATR_eq (0 = off)", minval=0, step=0.5, group="Mejoras w9")
+extH4    = input.float(0.0, "Filtro extensión 4H (0 = off)", minval=0, step=0.5, group="Mejoras w9")
+extD1    = input.float(0.0, "Filtro extensión 1D (0 = off)", minval=0, step=0.5, group="Mejoras w9")
+tpPctH1  = input.float(25.0, "Toma parcial 1H: % de la posición (0 = off)", minval=0, maxval=90, step=5, group="Mejoras w9")
+tpPctH4  = input.float(0.0,  "Toma parcial 4H: % de la posición (0 = off)", minval=0, maxval=90, step=5, group="Mejoras w9")
+tpPctD1  = input.float(0.0,  "Toma parcial 1D: % de la posición (0 = off)", minval=0, maxval=90, step=5, group="Mejoras w9")
+tpMult   = input.float(1.5,  "Toma parcial: beneficio en ATR_eq", minval=0.5, step=0.25, group="Mejoras w9")
+
+startT   = input.time(timestamp("2017-08-17 00:00 +0000"), "Inicio del test", group="Ventana de test")
+endT     = input.time(timestamp("2026-12-31 23:59 +0000"), "Fin del test",    group="Ventana de test")
+
+showDiag = input.bool(true, "Mostrar panel de diagnóstico", group="Diagnóstico")
+
+// --------------------------- Escalado por timeframe --------------------------
+f       = 14400.0 / timeframe.in_seconds()            // 1H -> 4 | 4H -> 1 | 1D -> 1/6
+emaLen  = int(math.floor(emaBase  * f + 0.5))
+lookLen = int(math.floor(lookBase * f + 0.5))
+fastLen = int(math.floor((timeframe.in_seconds() == 86400 ? fastD1 : fastBase) * f + 0.5))
+atrLen  = math.max(int(math.floor(atrBase * f + 0.5)), 14)   // suelo de 14 barras (en 1D la escala daría 2)
+volLen  = int(math.floor(volBase * f + 0.5))
+riskPct = timeframe.in_seconds() == 86400 ? riskD1 : timeframe.in_seconds() == 14400 ? riskH4 : riskH1
+mult    = timeframe.in_seconds() == 86400 ? multD1 : timeframe.in_seconds() == 14400 ? multH4 : multH1
+extMax  = timeframe.in_seconds() == 86400 ? extD1 : timeframe.in_seconds() == 14400 ? extH4 : extH1
+tpPct   = timeframe.in_seconds() == 86400 ? tpPctD1 : timeframe.in_seconds() == 14400 ? tpPctH4 : tpPctH1
+
+// Guarda: w4 solo está validada en 1H, 4H y 1D.
+if not (timeframe.in_seconds() == 3600 or timeframe.in_seconds() == 14400 or timeframe.in_seconds() == 86400)
+    runtime.error("w9 solo está validada en 1H, 4H y 1D. Cambia el timeframe del gráfico a uno de esos tres.")
+
+// --------------------------------- Indicadores -------------------------------
+// EMAs recursivas, sembradas con el primer cierre (== pandas ewm(adjust=False))
+alphaT   = 2.0 / (emaLen + 1)
+alphaF   = 2.0 / (fastLen + 1)
+var float emaTrend = na
+var float emaFast  = na
+emaTrend := na(emaTrend) ? close : alphaT * close + (1 - alphaT) * emaTrend
+emaFast  := na(emaFast)  ? close : alphaF * close + (1 - alphaF) * emaFast
+
+atrEq    = ta.atr(atrLen) * math.sqrt(f)
+prevLow  = ta.lowest(low, lookLen)[1]                 // mínimo de las N barras ANTERIORES (sin lookahead)
+
+// Filtro de volatilidad: ATR% frente a su percentil (interpolación lineal, == pandas quantile) de las volLen barras previas
+atrPct   = atrEq / close
+volThr   = ta.percentile_linear_interpolation(atrPct, volLen, volPct)
+volReady = bar_index >= atrLen + volLen - 1               // ventana completa de ATR% disponible
+volOk    = not volReady or not (atrPct > volThr[1])
+
+inWindow = time >= startT and time <= endT
+warmedUp = bar_index >= emaLen                        // no operar hasta que la EMA de régimen lleve emaLen barras
+regime   = close < emaTrend
+sigBreak = regime and close < prevLow
+sigPull  = regime and emaFast < emaTrend and close < emaFast and close[1] >= emaFast[1]
+extOk    = extMax <= 0 or ((emaTrend - close) / atrEq <= extMax)   // no vender movimientos ya muy extendidos bajo la EMA de régimen
+signal   = inWindow and warmedUp and volOk and extOk and not na(atrEq) and not na(prevLow) and (sigBreak or sigPull)
+
+// ------------------------------ Gestión del stop -----------------------------
+var float stopPx   = na
+var float lowSince = na
+var int   nSignals = 0
+
+if strategy.position_size < 0
+    lowSince := na(lowSince) ? low : math.min(lowSince, low)
+    stopPx   := math.min(stopPx, lowSince + mult * atrEq)
+    strategy.exit("SL", "Short", stop=stopPx)
+
+// ---------------------------------- Entrada ----------------------------------
+if signal and strategy.position_size == 0
+    float dist     = mult * atrEq / close
+    float notional = math.min(maxLev * strategy.equity, (riskPct / 100.0) * strategy.equity / dist)
+    float qty      = notional / close
+    stopPx   := close + mult * atrEq
+    lowSince := na
+    nSignals += 1
+    strategy.entry("Short", strategy.short, qty=qty)
+    strategy.exit("SL", "Short", stop=stopPx)         // se activa en cuanto se ejecuta la entrada
+    if tpPct > 0
+        strategy.exit("TP", "Short", qty_percent=tpPct, limit=close - tpMult * atrEq)   // toma parcial (una sola vez)
+
+// Cierre al final de la ventana de test
+if time > endT and strategy.position_size < 0
+    strategy.close_all(comment="Fin ventana")
+
+// ---------------------------------- Gráficos ---------------------------------
+plot(emaTrend, "EMA régimen", color=color.new(color.orange, 0), linewidth=2)
+plot(emaFast,  "EMA rápida",  color=color.new(color.aqua, 30),  linewidth=1)
+plot(strategy.position_size < 0 ? stopPx : na, "Stop trailing", color=color.red, style=plot.style_linebr, linewidth=2)
+plotshape(signal and strategy.position_size == 0 and sigBreak, title="Señal ruptura", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.tiny)
+plotshape(signal and strategy.position_size == 0 and not sigBreak, title="Señal pullback", style=shape.triangledown, location=location.abovebar, color=color.purple, size=size.tiny)
+
+// ------------------------------ Panel de diagnóstico -------------------------
+var int   firstT = time
+var table diag   = table.new(position.top_right, 2, 10, bgcolor=color.new(color.black, 15), border_width=1)
+
+diagRow(table t, int row, string label, string value) =>
+    table.cell(t, 0, row, label, text_color=color.white,  text_halign=text.align_left, text_size=size.small)
+    table.cell(t, 1, row, value, text_color=color.yellow, text_halign=text.align_left, text_size=size.small)
+
+if showDiag and barstate.islast
+    diagRow(diag, 0, "w9 · diagnóstico", syminfo.tickerid)
+    diagRow(diag, 1, "Timeframe (s)", str.tostring(timeframe.in_seconds()))
+    diagRow(diag, 2, "EMA / rápida / ruptura / ATR", str.format("{0} / {1} / {2} / {3}", emaLen, fastLen, lookLen, atrLen))
+    diagRow(diag, 3, "Barras cargadas", str.tostring(bar_index + 1))
+    diagRow(diag, 4, "Primera barra", str.format_time(firstT, "yyyy-MM-dd"))
+    diagRow(diag, 5, "Señales SHORT", str.tostring(nSignals))
+    diagRow(diag, 6, "Operaciones cerradas", str.tostring(strategy.closedtrades))
+    diagRow(diag, 7, "Posición abierta", str.tostring(strategy.position_size))
+    diagRow(diag, 8, "Ahora: régimen | ruptura | pullback", str.tostring(regime) + " | " + str.tostring(sigBreak) + " | " + str.tostring(sigPull))
+    diagRow(diag, 9, "Vol OK | riesgo % | mult | ext | TP%", str.tostring(volOk) + " | " + str.tostring(riskPct) + " | " + str.tostring(mult) + " | " + str.tostring(extMax) + " | " + str.tostring(tpPct))
