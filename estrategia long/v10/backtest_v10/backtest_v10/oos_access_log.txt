@@ -1,0 +1,6 @@
+V10 - registro de accesos a ventanas de validacion / holdouts
+2026-10-07  Rondas 10a, 10b, 10c: SOLO TRAIN (2017-08 -> 2021), VAL (2022-23) y DEV (<= 2023-12-31) en ETH, BTC y DOGE. Ningun holdout abierto.
+2026-10-07  Ninguna variante cumplio R1-R3 del pre-registro, asi que NO se abrieron los holdouts H1 (2015-17), H2 (ETC), H3 (2024-26 como veto), H4-H6.
+2026-10-07  Analisis de anclas (anchor10.py / ens10.py): descriptivo, ventana comun 2017-08-17 -> 2026-10-03 y sus subventanas; no se uso para elegir parametros de la estrategia.
+2026-10-07  final10.py / verify10.py: comparativa V9 vs V10 en ventanas comunes (incluye OOS1 2024-26 y OOS2 2026), como DESCRIPCION: esas ventanas ya eran conocidas de V8/V9 (OOS1 mirado 3 veces; OOS2 abierto en V8).
+Conclusion de protocolo: V10 = V9 en logica; no hay seleccion hecha con datos de OOS, por lo que V10 no anade sobreajuste respecto a V9. No existe OOS virgen para V10.

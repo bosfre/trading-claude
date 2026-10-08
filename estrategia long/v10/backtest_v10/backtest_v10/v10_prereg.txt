@@ -1,0 +1,59 @@
+V10 - PRE-REGISTRO (escrito ANTES de ejecutar ninguna hipotesis nueva)
+Fecha: 2026-10-07. Linea base: V9 (= V8, sin cambios de logica). Datos: CSV del proyecto (ETH 1h/4h/1d 2017-08 -> 2026-01-06) + tramo
+Twelve Data hasta 2026-10-03; BTC/DOGE/ETC del repo. Costes del repo (comision 0,06 %, slippage por activo, funding).
+
+REFERENCIA V9 reproducida (ETH, 2017-08-17 -> 2026-10-03, riesgo 5 %): 1H +1431 % / DD -21,8 % / 143 op | 4H +1011 % / -17,6 % / 126 op
+| 1D +483 % / -23,4 % / 105 op. (El +366 % / ~27 % DD que cita el usuario para 1D no se reproduce con estos datos: se usa la referencia propia.)
+
+DESCARTADO YA EN V6-V9 (no se repite): piramide, cortos, reentrada, salidas parciales, entrada por stop, stop al cierre, throttle por DD,
+trinquetes, multi-velocidad, filtros de volatilidad/ADX/regimen largo, TP 0-40, rejilla N x L x ATR x k, ETH/BTC, salida temporal por MFE,
+salida por EMA/BTC, trailing que se afloja, TP->trailing, filtro de extension, calidad de vela, tamano por extension, margen de ruptura.
+
+HIPOTESIS NUEVAS (12 variantes x 3 temporalidades = 36 pruebas), todas con ETH + BTC + DOGE:
+ G1 VOLUMEN (informacion nueva; solo se uso como diagnostico, nunca como regla): entrar solo si el volumen de la vela de ruptura >= m x media de
+    las N velas previas. m = 1,0 | 1,5. El tramo 2026-01 -> 10 no tiene volumen (Twelve Data): alli el filtro no actua.
+ G2 PARADA POR ESTANCAMIENTO: si pasan T horas sin nuevo maximo, el trailing baja de 5 ATR a k ATR. (T,k) = (280 h, 3,5) | (560 h, 3,5) | (560 h, 4,0).
+ G3 ENFRIAMIENTO TRAS PERDIDA: tras una operacion perdedora no se abre otra durante C horas. C = 100 | 300. (Opuesto a la reentrada, que ya se descarto.)
+ G4 RUPTURA FALLIDA: en las primeras F horas, si el cierre cae por debajo del nivel del canal roto - m ATR, salida en la apertura siguiente.
+    (F,m) = (50 h, 1,0) | (150 h, 1,0) | (150 h, 2,0).
+ G5 ANCLA DEL TRAILING EN CIERRES: el trailing sigue al maximo de cierres en vez del maximo intrabarra (menos sensible a mechas). 1 variante.
+ G6 CONFIRMACION DE 2 CIERRES: entrar solo si 2 cierres consecutivos estan por encima del canal. 1 variante.
+ No se prueba (prior bajo, mineria de datos): estacionalidad/hora/dia de la semana; amplitud de mercado con ETC (no hay datos de ETC en 2026).
+
+CRITERIO DE ACEPTACION POR TEMPORALIDAD (identico a accept9 de V9; contra V9; SOLO TRAIN/VAL/DEV <= 2023-12-31):
+   dCalmar ETH > 0 en TRAIN y en VAL; dCalmar BTC y DOGE (DEV) >= 0; dMDD ETH (DEV) > -1 pp; dR/operacion ETH (DEV) > 0.
+REGLAS ADICIONALES V10 (contra falsos positivos: 36 pruebas dan 1-3 aciertos por azar):
+   R1. Una palanca solo se adopta si pasa el criterio en >= 2 de las 3 temporalidades con el MISMO signo de efecto y los mismos parametros,
+       o en 1 temporalidad con un efecto grande (dCalmar ETH DEV >= 0,3) Y un vecino de parametros que tambien pase.
+   R2. Una palanca candidata debe tener al menos un vecino de parametros que no empeore (sensibilidad); un unico punto aislado = ruido.
+   R3. Si una palanca solo pasa en 1H/4H, 1D queda sin cambios (V9). Nunca se acepta nada que empeore 1D (dCalmar ETH DEV < -0,05 o dMDD < -1 pp).
+HOLDOUTS (solo para candidatas que pasan R1-R3), registrados en oos_access_log.txt:
+   H1 2015-08 -> 2017-08 (solo 1D, datos FMP): dCalmar >= -0,10 | H2 ETC (1h/4h/1d completo): dCalmar >= 0 | H3 2024-01 -> 2026-10 (veto): dCalmar >= -0,10
+   H4 costes x2 (DEV): dCalmar >= 0 | H5 a igual DD: dCAGR > 0 | H6 retorno por ano 2018-2025: mejora en >= la mitad de los anos.
+ENSAMBLE: si pasan varias palancas se prueban juntas UNA vez (mismo criterio y holdouts); si el ensamble no supera a la mejor palanca sola, se adopta la sola.
+SI NADA PASA: V10 = V9 en logica. Se documenta el resultado nulo, no se fuerza una mejora.
+DESPLIEGUE (no es edge): el riesgo por operacion de cada temporalidad se puede reducir para bajar el DD; se presentara por separado como
+   desescalado de riesgo (la frontera rentabilidad/DD), nunca como mejora de la estrategia.
+
+ENMIENDA 1 (2026-10-07, tras la ronda 10a, escrita ANTES de ejecutar la 10b)
+ La ronda 10a mostro que G2 (estancamiento) no actua con T = 280/560 h: el estancamiento maximo dentro de una operacion 4H de la muestra es 248 h,
+ asi que esas 9 pruebas eran nulas por construccion (la palanca SI funciona: con T=24-100 h y k<=1 cambia las operaciones y empeora, test dbg_stall.py).
+ Se pre-registran 3 variantes alcanzables, que cuentan como pruebas adicionales (hay que tenerlas en cuenta frente a falsos positivos):
+   G2b (T,k) = (100 h, 3,0) | (150 h, 3,5) | (200 h, 4,0).   Mismo criterio y mismas reglas R1-R3.
+ Hasta aqui el total de pruebas pre-registradas es 12 + 3 = 15 variantes x 3 TF = 45.
+
+ENMIENDA 2 (2026-10-07, tras la ronda 10b; escrita ANTES de ejecutar la 10c)
+ Unico candidato limitrofe: G3 enfriamiento tras perdida (100 h pasa el criterio en 1H, 4H casi: ETH TRAIN -0,02; 300 h falla con claridad).
+ Curva de sensibilidad pre-registrada: C = 50 | 75 | 100 | 125 | 150 | 200 h (18 pruebas mas; total 63).
+ REGLA DE ADOPCION: C se adopta solo si el MISMO C pasa el criterio por temporalidad en 1H y en 4H, y >= 4 de los 6 valores de C pasan en ambas.
+ Si no, se descarta y se documenta como resultado nulo. (G4 ruptura fallida 150h/2ATR pasa solo en 1D con efecto 0,10/0,06: incumple R1, no se explora mas.)
+
+ENMIENDA 3 (2026-10-07; escrita ANTES de calcular el ensamble; tras ver que el resultado de V9 depende del ancla de la vela)
+ Hallazgo no pre-registrado (descriptivo): V9 en 1D con 24 anclas da CAGR 18,6-29,1 % y el ancla estandar (00:00 UTC) esta entre las peores.
+ HIPOTESIS G7 (principio de diversificacion, sin parametros que optimizar): repartir el capital a partes iguales entre K anclas equiespaciadas.
+   1D: K = 4 (00,06,12,18 h UTC) y K = 24.   4H: K = 4 (00,01,02,03 h).
+ COMPARACION JUSTA: el ensamble se compara contra la MEDIA de las anclas individuales (valor esperado de elegir un ancla al azar), no contra el ancla 0,
+   porque contra el ancla 0 la mejora seria en parte regresion a la media. Se informa tambien contra el ancla 0.
+ CRITERIO: (i) CAGR del ensamble >= media de anclas - 1 pp; (ii) DD del ensamble mejor que el DD medio de las anclas; (iii) Calmar del ensamble > Calmar medio en
+   TRAIN y en VAL (ETH) y en BTC y DOGE (DEV). Metricas con equity de cierre diario (las mismas para todos).
+ Es un cambio de DESPLIEGUE (mas operaciones, K sleeves en paralelo y un Pine mas complejo), no de logica de entrada/salida.
