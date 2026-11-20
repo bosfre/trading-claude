@@ -13,4 +13,4 @@ Desarrollo y optimización de estrategias de trading sobre ETH (TradingView / Pi
 - En `estrategia long/` varias carpetas están anidadas (`backtest_v6/backtest_v6/`, `backtest_v7/backtest_v7/`, `backtest_v10/backtest_v10/`). **No aplanarlas:** algunos scripts calculan la raíz del repo desde su propia ubicación (p. ej. `HERE/../../..`).
 - Algunos scripts long conservan rutas absolutas de sesiones anteriores (`/home/claude/...`, `/mnt/user-data/uploads`). Hay que ajustarlas antes de ejecutarlos en otra máquina.
 - Los resultados de las versiones short no son comparables sin mirar el modelo de costes y los tramos de cada una (ver tabla en `estrategia short/README.md`).
-- Para comparar contra TradingView, usar `estrategia short/tv_match/` (comisión 0,06 %, slippage pendiente, ventanas de 2.500 velas en 4H y 1H).
+- Para comparar contra TradingView, usar `estrategia short/tv_match/` (comisión 0,06 % + slippage 0,06 %, ventanas de 2.500 velas en 4H y 1H).
