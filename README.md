@@ -5,7 +5,7 @@ Desarrollo y optimización de estrategias de trading sobre ETH (TradingView / Pi
 ## Estructura
 | Ruta | Qué hay |
 |---|---|
-| `csvs/` | Datos OHLCV. ETHUSDT 1D/4H/1H (Binance, 2017-08-17 → 2026-01-06) usados por los backtests; BTCUSDT y DOGEUSDT (15m, 1h, 4h) y ETCUSDT (1h, 4h); tres extractos pequeños `ETHUSDT-*-2026-01-*.csv` en bruto (timestamp unix en ms). |
+| `csvs/` | Datos OHLCV. ETHUSDT 1D/4H/1H (Binance, 2017-08-17 → 2026-01-06) usados por los backtests; BTCUSDT y DOGEUSDT (15m, 1h, 4h) y ETCUSDT (1h, 4h); tres extractos pequeños `ETHUSDT-*-2026-01-*.csv` en bruto (timestamp unix en ms); `ext2026/` = ETH/USD de 2026-01-06 a noviembre de 2026 (Twelve Data 1H/4H, Alpha Vantage 1D) para extender los CSV de Binance. |
 | `estrategia short/` | Versiones SHORT w1–w11 y `tv_match/`. **Empezar por `estrategia short/README.md`.** |
 | `estrategia long/` | Versiones LONG (v3, v4, v6–v10): Pine, informes (`informe_V8/V9/V10.md`) y carpetas `backtest_vN/` con los motores. |
 
