@@ -1,19 +1,19 @@
 """
 exp12.py - Rejilla de hipotesis W12 sobre W10/W11. SELECCION SOLO CON DESARROLLO: TRAIN / VALIDATION / OOS (<= 2026-01-10).
-El tramo HOLDOUT26 (2026-01-07 ->) NO se mide aqui: se mide una sola vez al final, solo para los finalistas (holdout12.py).
-Costes TradingView (0,06 %, slip 0, cantidad al cierre). Unidades de longitud: barras de 4H (se escalan por temporalidad).
+El tramo HOLDOUT26 (2026-01-07 ->) NO se mide aqui: se mide una sola vez al final, solo para los finalistas, con backtest_w12.py (segmento HOLDOUT26).
+Costes TradingView (--fee 0,06 % y --slip 0,06 % por defecto, cantidad al cierre). Unidades de longitud: barras de 4H (se escalan por temporalidad).
 Hipotesis:  cool  = enfriamiento tras perdida (control: el diagnostico no ve rachas)
             er    = filtro de lateralidad: no entrar si el ratio de eficiencia de Kaufman < umbral
             slope = filtro de pendiente: solo entrar si la EMA de regimen cae al menos X en n barras
-Uso: python exp12.py [carpeta csvs]  -> resultados/exp_dev.csv y resumen en pantalla
+Uso: python exp12.py [carpeta csvs] [--fee ..] [--slip ..]  -> resultados/exp_dev_<slipX>.csv y resumen en pantalla
 """
 import os, sys, itertools, numpy as np, pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import backtest_w12 as B
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-d = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, '..', '..', 'csvs')
-B.set_costs(0.0006, 0.0, 'close')
+d = B.cli_dir(os.path.join(HERE, '..', '..', 'csvs'))
+FEE, SLIP = B.cli_costs(); LABEL = f'slip{SLIP * 100:g}'; B.set_costs(FEE, SLIP, 'close')
 D = B.load(d, ext=True); TS = {tf: B.TF(D[tf], tf) for tf in D}
 DEV = ['TRAIN', 'VALIDATION', 'OOS', 'TOTAL']
 
@@ -46,7 +46,7 @@ for seg in ('TRAIN', 'VALIDATION', 'OOS'):
     b = R[R.hyp == 'base'].set_index(['base', 'tf'])[f'calmar_{seg}']
     R[f'mejora_{seg}'] = [R.loc[i, f'calmar_{seg}'] > b[(R.loc[i, 'base'], R.loc[i, 'tf'])] + 1e-9 for i in R.index]
 R['mejora_n'] = R[['mejora_TRAIN', 'mejora_VALIDATION', 'mejora_OOS']].sum(axis=1)
-os.makedirs(f'{HERE}/resultados', exist_ok=True); R.to_csv(f'{HERE}/resultados/exp_dev.csv', index=False)
+os.makedirs(f'{HERE}/resultados', exist_ok=True); R.to_csv(f'{HERE}/resultados/exp_dev_{LABEL}.csv', index=False)
 
 pd.set_option('display.width', 250); pd.set_option('display.max_rows', 500)
 cols = ['base', 'tf', 'hyp', 'par', 'ret_TOTAL', 'dd_TOTAL', 'pf_TOTAL', 'n_TOTAL', 'calmar_TRAIN', 'calmar_VALIDATION', 'calmar_OOS', 'mejora_n']

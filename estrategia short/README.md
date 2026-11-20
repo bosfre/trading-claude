@@ -16,6 +16,7 @@ Convención de nombres: las estrategias **short** se llaman `w` + versión (w1, 
 | `w10/` | Pine, `W10_resultados.md` | **Reconstrucción** (el archivo original no estaba disponible cuando se hizo W11; ver `w11/W11_resultados.md`). `backtest_w11.py` la reproduce como baseline. |
 | `w11/` | Pine, `W11_resultados.md`, `backtest_w11.py` | Baseline W10 + stop por tipo de entrada. Uso: `python backtest_w11.py ../../csvs` (necesita `ETHUSDT_1h/4h/1d.csv`). |
 | `w12/` | `W12_resultados.md`, `backtest_w12.py`, `exp12.py`, `diag12.py`, `build_ext_data.py`, `data_raw/`, `resultados/` | **Intento de mejora sobre W11: sin mejora robusta, no hay Pine W12.** Motor con costes de TradingView y datos hasta nov-2026; contiene el test fuera de muestra de W10/W11 en 2026. |
+| `ENCARGO_CODEX.md` | — | Encargo para Codex: revisión de los Pine (margen, costes) y búsqueda de mejora con walk-forward y test final reservado. |
 | `tv_match/` | Motor, datos, resultados, README propio | Backtest de W8/W9 con las condiciones del TradingView del usuario. Ver su README. |
 
 ## Datos
@@ -30,7 +31,7 @@ Los CSV de ETHUSDT (Binance, 2017-08-17 → 2026-01-06) están en `../csvs/` (`E
 | W5 | 0,05 % por lado | ver `W5_resultados.md` |
 | W6 | 0,05 % por lado | 0,02 % (doble en entradas stop) |
 | W8–W11 (`backtest_w4.py`, `backtest_w11.py`) | 0,05 % por lado | 0,03 % por lado |
-| `tv_match/` | **0,06 % por lado** (la del usuario en TradingView) | **pendiente de confirmar**; por defecto 0, parámetro `--slip` |
+| `tv_match/`, `w12/` | **0,06 % por lado** (la del usuario en TradingView) | **0,06 % por lado** (confirmado). Los Pine W9–W11 siguen con comisión 0,08 % y `slippage=0`: ver `ENCARGO_CODEX.md` |
 
 ## Límites de TradingView (plan gratuito del usuario)
 - **1D:** ve todo el historial (desde 2015).
@@ -43,8 +44,8 @@ Los CSV de ETHUSDT (Binance, 2017-08-17 → 2026-01-06) están en `../csvs/` (`E
 3. **2026 es un test limpio (no usado para optimizar) y es negativo** en 1D y 4H para W8/W9; hay que comprobar cualquier versión nueva sobre 2026.
 4. Los resultados 1D cambian mucho según el vendor de datos (p. ej. 2018 en W8: +95 % con Binance, +157 % con ETH/USD de Alpha Vantage).
 
-5. **W11 no mejora a W10 en 2026** (test fuera de muestra, desde 2026-01-07, costes de TradingView): 1D −14,8 % frente a −8,7 %; 4H +11,2 % frente a +13,1 %; 1H +20,4 % frente a +22,2 %. Pocas operaciones (27–37), no concluyente, pero la ventaja de W11 solo está confirmada en el periodo de diseño. Ver `w12/W12_resultados.md`.
+5. **W11 no mejora a W10 en 2026** (test fuera de muestra, desde 2026-01-07, costes de TradingView): 1D −19,2 % frente a −12,8 %; 4H +6,7 % frente a +8,9 %; 1H +14,3 % frente a +15,5 % (comisión 0,06 % + slippage 0,06 %). Pocas operaciones (26–37), no concluyente, pero la ventaja de W11 solo está confirmada en el periodo de diseño. Ver `w12/W12_resultados.md`.
 
 ## Pendiente
-- Confirmar el slippage de TradingView y aplicarlo en `tv_match/` (`python run_final.py --slip …`).
+- Alinear los Pine W9–W11 con las condiciones confirmadas (comisión 0,06 % + slippage 0,06 % ≈ 0,12 % por lado, modelado como comisión porcentual) y revisar `margin_short` (ver `ENCARGO_CODEX.md`).
 - Recuperar o regenerar `w1`–`w3`, `w7`, el Pine de `w1` y los scripts de backtest de W5–W10, si se quieren reproducibles uno a uno.

@@ -5,7 +5,7 @@ w12 - Motor de backtest ETHUSDT SHORT-only en 1H / 4H / 1D. Es el motor de backt
   - datos extendidos hasta nov-2026: load(d, ext=True) concatena Binance + csvs/ext2026/ (ver build_ext_data.py)
   - tramo HOLDOUT26 (2026-01-07 -> fin): W10/W11 se disenaron con datos hasta 2026-01-06, asi que es un test fuera de muestra
   - ganchos para W12: cooldown tras perdida, filtro de eficiencia (ER, lateralidad), filtro de pendiente de la EMA de regimen
-Uso: python backtest_w12.py [carpeta csvs]      -> calibracion contra W11 + W10/W11 con costes de TradingView
+Uso: python backtest_w12.py [carpeta csvs] [--fee 0.0006] [--slip 0.0006]   -> calibracion contra W11 + W10/W11 con costes de TradingView
 """
 import numpy as np, pandas as pd, bisect, os, sys
 
@@ -16,6 +16,16 @@ SPLITS = {'TRAIN': ('2017-08-17', '2021-12-31 23:59:59'), 'VALIDATION': ('2022-0
           'ALL': ('2017-08-17', '2030-01-01')}
 FAC = {'1h': 4, '4h': 1, '1d': 1 / 6}
 RD = lambda x: int(np.floor(x + 0.5))
+
+
+def cli_costs():
+    """--fee y --slip (fraccion por lado). Por defecto las condiciones de TradingView del usuario: 0,06 % + 0,06 %."""
+    g = lambda k, dflt: float(sys.argv[sys.argv.index(k) + 1]) if k in sys.argv else dflt
+    return g('--fee', 0.0006), g('--slip', 0.0006)
+
+
+def cli_dir(default):
+    return sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith('--') else default
 
 
 def set_costs(fee, slip, size='entry'):
@@ -228,14 +238,15 @@ def table(D, cfgs_risks, segs, whole, label):
 
 
 if __name__ == "__main__":
-    d = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'csvs')
+    d = cli_dir(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'csvs'))
+    fee, slip = cli_costs(); label = f'slip{slip * 100:g}'
     pd.set_option('display.width', 220); cols = ['tf', 'ver', 'riesgo', 'seg', 'ret', 'dd', 'pf', 'wr', 'n', 'apt', 'cagr']
     print('=== 1) CALIBRACION: costes antiguos (0,05 % + 0,03 %), datos Binance hasta 2026-01-06; debe coincidir con W11_resultados.md ===')
     set_costs(0.0005, 0.0003, 'entry')
     print(table(load(d), BASE, SEGS, 'TOTAL', 'old')[cols].round(2).to_string(index=False))
-    print('\n=== 2) W10/W11 con condiciones de TradingView (0,06 %, slip 0, cantidad al cierre), datos extendidos; HOLDOUT26 = test limpio ===')
-    set_costs(0.0006, 0.0, 'close')
+    print(f'\n=== 2) W10/W11 con condiciones de TradingView (comision {fee*100:g} %, slippage {slip*100:g} %, cantidad al cierre), datos extendidos; HOLDOUT26 = test limpio ===')
+    set_costs(fee, slip, 'close')
     R = table(load(d, ext=True), BASE, SEGS + ['HOLDOUT26', 'ALL'], 'ALL', 'tv')
     print(R[cols].round(2).to_string(index=False))
     os.makedirs(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'resultados'), exist_ok=True)
-    R.round(4).to_csv(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'resultados', 'baseline_W10_W11_tv.csv'), index=False)
+    R.round(4).to_csv(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'resultados', f'baseline_W10_W11_tv_{label}.csv'), index=False)

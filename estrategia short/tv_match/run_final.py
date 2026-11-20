@@ -1,8 +1,8 @@
 """
 run_final.py - W8 y W9 (SHORT ETH) en 1D / 4H / 1H con las condiciones de TradingView del usuario.
-Uso: python3 run_final.py [--fee 0.0006] [--slip 0.0]
+Uso: python3 run_final.py [--fee 0.0006] [--slip 0.0006]
   --fee : comision por lado como fraccion del nominal (0.0006 = 0,06 %, valor actual del usuario)
-  --slip: slippage por lado como fraccion del precio. PENDIENTE: el usuario lo confirmara; por defecto 0.
+  --slip: slippage por lado como fraccion del precio (0.0006 = 0,06 %, valor confirmado por el usuario); --slip 0 lo desactiva.
 Escribe resultados/resumen_final.csv y resultados/trades_<ver>_<tf>.csv
 """
 import os, sys
@@ -15,7 +15,7 @@ def arg(name, default):
     return float(sys.argv[sys.argv.index(name) + 1]) if name in sys.argv else default
 
 
-fee, slip = arg('--fee', 0.0006), arg('--slip', 0.0)
+fee, slip = arg('--fee', 0.0006), arg('--slip', 0.0006)
 rd_csv = lambda f: pd.read_csv(f'{HERE}/data/{f}', parse_dates=['timestamp']).set_index('timestamp')
 D = {'1d': rd_csv('ETHUSD_1d_hybrid_2015_2026.csv'), '4h': rd_csv('ETHUSD_4h_TD_ult2500.csv'), '1h': rd_csv('ETHUSD_1h_TD_ult2500.csv')}
 os.makedirs(f'{HERE}/resultados', exist_ok=True)

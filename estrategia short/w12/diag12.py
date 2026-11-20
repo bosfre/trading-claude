@@ -1,13 +1,13 @@
 """
 diag12.py - Diagnostico: ¿una perdida tiende a seguirse de otra? ¿Cuanto duran los stops? Desarrollo (<=2026-01-06) frente a 2026.
-Costes TradingView (0,06 %, slip 0, cantidad al cierre). Uso: python diag12.py [carpeta csvs]
+Costes TradingView (--fee 0,06 % y --slip 0,06 % por defecto, cantidad al cierre). Uso: python diag12.py [carpeta csvs]
 """
 import os, sys, numpy as np, pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import backtest_w12 as B
 
-d = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'csvs')
-B.set_costs(0.0006, 0.0, 'close')
+d = B.cli_dir(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'csvs'))
+FEE, SLIP = B.cli_costs(); LABEL = f'slip{SLIP * 100:g}'; B.set_costs(FEE, SLIP, 'close')
 D = B.load(d, ext=True); TS = {tf: B.TF(D[tf], tf) for tf in D}
 cut = {tf: TS[tf].idx.searchsorted(pd.Timestamp('2026-01-07')) for tf in TS}
 rows = []

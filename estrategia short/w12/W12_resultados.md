@@ -4,7 +4,7 @@
 
 ## Datos y motor
 - **Motor:** `backtest_w12.py` = el de `backtest_w11.py` + costes parametrizables + tramo `HOLDOUT26` + ganchos para las hipótesis. **Calibración exacta:** con costes antiguos (0,05 % + 0,03 %) y datos hasta 2026-01-06 reproduce todas las cifras de `W11_resultados.md` (p. ej. 1D W11 TOTAL +818,02 %, DD −20,50 %, PF 2,50, 105 ops).
-- **Costes de este documento:** condiciones de TradingView del usuario: **comisión 0,06 % por lado, slippage 0 (pendiente de confirmar), cantidad calculada al cierre de la señal**.
+- **Costes de las tablas de las secciones anteriores a «Con el slippage confirmado»:** comisión 0,06 % por lado, **slippage 0**, cantidad calculada al cierre de la señal. El usuario confirmó después **slippage 0,06 % por lado**; esa sección repite la línea base y la rejilla con los costes definitivos y **las conclusiones no cambian**.
 - **Datos:** Binance ETHUSDT hasta 2026-01-06 + extensión hasta noviembre de 2026 en `csvs/ext2026/` (1H y 4H: Twelve Data ETH/USD; 1D: Alpha Vantage ETH/USD; ver `build_ext_data.py`). La última vela de Binance estaba incompleta y la sustituye la completa. Sin huecos.
 - **`HOLDOUT26` (2026-01-07 → 2026-11-20):** W10 y W11 se diseñaron con datos hasta 2026-01-06, así que este tramo es un test fuera de muestra real para ellas. Entre 27 y 37 operaciones por temporalidad: poca muestra.
 
@@ -54,12 +54,28 @@ Bases W10 y W11; 24 variantes por temporalidad y base; costes TradingView. Crite
 
 La mejora de 2 días sale de **5 operaciones que se dejan de hacer**, no es monótona, el OOS no cambia y con 2 pérdidas seguidas empeora. No se adopta.
 
+## Con el slippage confirmado (comisión 0,06 % + slippage 0,06 % por lado)
+El usuario confirmó el slippage cuando las secciones anteriores ya estaban hechas (con slippage 0). Misma línea base y misma rejilla con los costes definitivos (`--slip 0.0006`, valor por defecto de los scripts; `--slip 0` reproduce las tablas anteriores).
+
+| TF | Versión | Desarrollo: Rentab. · DD · PF | 2026 (holdout): Rentab. · DD · PF · WR · Ops |
+|---|---|---|---|
+| 1D | W10 | +453,4 % · −21,0 % · 2,09 | −12,8 % · −25,8 % · 0,80 · 26,9 % · 26 |
+| 1D | W11 | +737,3 % · −21,1 % · 2,37 | −19,2 % · −29,3 % · 0,68 · 29,6 % · 27 |
+| 4H | W10 | +361,3 % · −25,1 % · 1,48 | +8,9 % · −22,8 % · 1,15 · 25,0 % · 36 |
+| 4H | W11 | +447,2 % · −21,8 % · 1,54 | +6,7 % · −22,8 % · 1,11 · 24,3 % · 37 |
+| 1H | W10 (riesgo 6 %) | +807,8 % · −18,4 % · 2,12 | +15,5 % · −26,2 % · 1,29 · 43,8 % · 32 |
+| 1H | W11 (riesgo 5,5 %) | +1.048,2 % · −18,7 % · 2,16 | +14,3 % · −29,4 % · 1,25 · 34,4 % · 32 |
+
+- El slippage recorta la rentabilidad total de W11 de +874 % a +737 % en 1D, de +547 % a +447 % en 4H y de +1.219 % a +1.048 % en 1H.
+- **W11 sigue por debajo de W10 en 2026 en las tres temporalidades.**
+- **Rejilla:** 0 variantes mejoran en los tres tramos de desarrollo. Mejoran en 2 de 3 (de 16 por celda): enfriamiento 1D 2 · 1H 5 · 4H 7; lateralidad (ER) 1D 4 · 1H 0 · 4H 3; pendiente 1D 5 · 1H 0 · 4H 0. Misma conclusión que con slippage 0.
+
 ## Qué no está probado / advertencias
 - **El holdout de 2026 no es virgen para el diseño de W12:** la idea de lateralidad/enfriamiento nació de ver cómo se comportaron W8/W9 en 2026. Por eso la selección se hizo solo con datos hasta 2026-01-10 y 2026 queda **sin tocar** para cualquier variante futura.
 - **No he probado cambios estructurales de la entrada o la salida** (solo tres hipótesis). Una búsqueda más amplia (estructuras distintas de entrada, validación walk-forward con control de comparaciones múltiples) es trabajo pesado para Codex; ver más abajo.
 - **1H en TradingView:** mi 1H en 2026 (W10 +22,2 %, 32 ops, PF 1,44) no cuadra con lo que el usuario ve en su TradingView (−21,6 %, 21 ops, 4 ganadoras, etiquetas «Margin call»). Posibles causas, sin verificar: la ventana de 2.500 velas (la EMA de régimen necesita ~2.400), ETH/USD frente a ETHUSDT, y la configuración de margen/apalancamiento del Pine. No es comparable sin la lista de operaciones.
 - Datos 2026 = Twelve Data (1H/4H) y Alpha Vantage (1D), no Binance. En el solape 4H coincide con Binance; en 1H la diferencia máxima de cierre es 0,1 %.
-- Slippage de TradingView todavía sin confirmar (0 aquí).
+- Los Pine W9–W11 siguen con comisión 0,08 % y `slippage=0`; no están alineados con las condiciones confirmadas (ver `../ENCARGO_CODEX.md`).
 
 ## Qué haría falta para seguir (tareas para Codex)
 1. **Búsqueda sistemática con walk-forward** (reentrenar año a año con solo años previos) sobre estructuras de entrada alternativas, con control de comparaciones múltiples (p. ej. Sharpe deflactado) y lista de pruebas registrada.
@@ -67,4 +83,4 @@ La mejora de 2 días sale de **5 operaciones que se dejan de hacer**, no es mon�
 3. Reservar `HOLDOUT26` como test final de cualquier candidata: se mide una sola vez.
 
 ## Archivos
-`backtest_w12.py` (motor; `python backtest_w12.py ../../csvs`) · `exp12.py` (rejilla) · `diag12.py` (diagnóstico) · `build_ext_data.py` (extensión de datos) · `data_raw/` (descargas originales) · `resultados/exp_dev.csv`, `resultados/baseline_W10_W11_tv.csv`.
+`backtest_w12.py` (motor; `python backtest_w12.py ../../csvs`) · `exp12.py` (rejilla) · `diag12.py` (diagnóstico) · `build_ext_data.py` (extensión de datos) · `data_raw/` (descargas originales) · `resultados/exp_dev_slip0.csv`, `resultados/exp_dev_slip0.06.csv`, `resultados/baseline_W10_W11_tv_slip0.csv`, `resultados/baseline_W10_W11_tv_slip0.06.csv`.
