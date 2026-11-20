@@ -1,7 +1,7 @@
-import pandas as pd, numpy as np
-R="/home/claude/trading-claude"
+import pandas as pd, numpy as np, os
+HERE=os.path.dirname(os.path.abspath(__file__)); R=os.path.abspath(os.path.join(HERE,"..","..",".."))  # raiz del repo
 C=f"{R}/csvs"; SH=f"{R}/estrategia short"
-U="/mnt/user-data/uploads"
+U=os.environ.get("TRADING_UPLOADS","/mnt/user-data/uploads")  # solo datos_nuevos antiguos (opcional)
 AGG={"open":"first","high":"max","low":"min","close":"last","volume":"sum"}
 def rd(p): return pd.read_csv(p,parse_dates=["timestamp"]).set_index("timestamp").sort_index()
 def rs(b,rule,expect,thr):

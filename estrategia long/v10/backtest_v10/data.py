@@ -2,7 +2,7 @@ import pandas as pd, numpy as np, os
 HERE = os.path.dirname(os.path.abspath(__file__))
 R = os.path.abspath(os.path.join(HERE, "..", "..", ".."))      # raiz del repo
 C = f"{R}/csvs"; SH = C                                          # BTC/DOGE/ETC (1h, 4h) viven en csvs/
-ETHD = f"{HERE}/datos"                                           # ETH 1h/4h/1d completos (2017-08 -> 2026-01-06)
+ETHD = C                                                           # ETH 1h/4h/1d en csvs/ (2017-08 -> 2026-01-06)
 AGG = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
 def rd(p): return pd.read_csv(p, parse_dates=["timestamp"]).set_index("timestamp").sort_index()
 def rs(b, rule, expect, thr):

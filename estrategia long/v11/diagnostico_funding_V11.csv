@@ -1,0 +1,4 @@
+tf,n,win_pct,fund_medio_gana_pct4h,fund_medio_pierde_pct4h,n_fund_alto,win_fund_alto,win_resto,ret_medio_alto,ret_medio_resto,spearman_rho,p
+1d,27,29.6,0.0005,0.0039,12,16.7,40.0,-1.36,0.78,-0.23,0.26
+1h,38,39.5,0.0018,0.0016,12,41.7,38.5,0.35,0.79,-0.02,0.93
+4h,33,42.4,0.0001,0.0019,11,36.4,45.5,-0.24,1.96,-0.28,0.12

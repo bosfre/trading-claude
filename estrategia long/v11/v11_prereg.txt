@@ -1,0 +1,32 @@
+V11 - PRE-REGISTRO (escrito ANTES de ejecutar ninguna prueba con datos macro)
+Fecha: 2026-11-19. Linea base: V10 (= V9 = V8 en logica; filtro BTC > EMA800h incluido). Datos de ETH/BTC/DOGE: los de V10 (hasta 2026-10-03).
+Linea base reproducida hoy con estos CSV (ETH, 2017-08-17 -> 2026-10-03, riesgo 5 %): 1H +1431,1 % / DD -21,8 % / 143 op | 4H +1010,6 % / -17,6 % / 126 op | 1D +483,2 % / -23,4 % / 105 op.
+
+INFORMACION NUEVA (primera vez que se usa como regla): Nasdaq Composite (diario, FMP, via CSV del usuario) e indice del dolar.
+ - El dolar NO es el ETF UUP: UUP viene sin ajustar por repartos y tiene caidas artificiales de -1,5 a -6 % en diciembre (2018, 2019, 2023, 2024, 2025).
+   Se usa un DXY SINTETICO construido con los pesos oficiales del DXY (EUR 57,6 / JPY 13,6 / GBP 11,9 / CAD 9,1 / SEK 4,2 / CHF 3,6) a partir de FX diario de
+   Alpha Vantage. Correlacion de retornos diarios con UUP sin dias de reparto: 0,958. Nivel 2022-09-27: 114,2 (pico real del DXY ~114).
+ - SIN LOOK-AHEAD: el dato macro del dia D solo se considera conocido a partir de D+1 00:00 UTC (la bolsa USA cierra a ~21:00 UTC). Cada barra cripto usa el ultimo
+   dato macro disponible en su hora de CIERRE (la senal se evalua en el cierre y se ejecuta en la apertura siguiente, como en V9).
+ - Sin dato macro suficiente (p. ej. SMA200 del Nasdaq antes de oct-2017) el filtro no actua (igual que el filtro BTC en V9). Afecta a ~2 meses de 2017.
+
+HIPOTESIS (7 variantes x 3 temporalidades = 21 pruebas, todas con ETH + BTC + DOGE; el filtro se aplica a la entrada, el resto de la logica es V9):
+ M1 NASDAQ EN TENDENCIA: entrar solo si Nasdaq > SMA(L) diaria.        L = 100 | 200
+ M2 DOLAR NO EN TENDENCIA ALCISTA: entrar solo si DXY < SMA(L) diaria. L = 100 | 200
+ M3 AMBOS: Nasdaq > SMA(L) Y DXY < SMA(L).                              L = 100 | 200
+ M4 TAMANO EN VEZ DE FILTRO: riesgo x0,5 si NO se cumple M3 con L=200 (en vez de bloquear la entrada). 1 variante.
+ Parametros (100/200 dias) elegidos por convencion, no optimizados. No se prueban otras ventanas, retornos, volatilidad macro ni otros activos macro.
+
+CRITERIO DE ACEPTACION POR TEMPORALIDAD (identico a V9/V10; contra V10; SOLO TRAIN 2017-08->2021, VAL 2022-23 y DEV <= 2023-12-31):
+   dCalmar ETH > 0 en TRAIN y en VAL; dCalmar BTC y DOGE (DEV) >= 0; dMDD ETH (DEV) > -1 pp; dR/operacion ETH (DEV) > 0.
+REGLAS ANTI-FALSO-POSITIVO (identicas a V10): 21 pruebas dan ~1-2 aciertos por azar.
+   R1. Se adopta solo si pasa en >= 2 de 3 temporalidades con los mismos parametros y mismo signo, o en 1 con efecto grande (dCalmar ETH DEV >= 0,3) y un vecino que tambien pase.
+   R2. Debe haber un vecino de parametros (L = 100 vs 200) que no empeore. Un punto aislado = ruido.
+   R3. Nunca se acepta nada que empeore 1D (dCalmar ETH DEV < -0,05 o dMDD < -1 pp).
+HOLDOUTS (solo si algo pasa R1-R3; se registran en oos_access_log.txt): H2 ETC 1h/4h/1d: dCalmar >= 0 | H3 2024-01 -> 2026-10 (veto): dCalmar >= -0,10
+   H4 costes x2 (DEV): dCalmar >= 0 | H5 a igual DD: dCAGR > 0 | H6 retorno por ano 2018-2025: mejora en >= la mitad de los anos.
+2024-2026 ya no es virgen (se uso en V8-V10): H3 es solo un veto, no una prueba independiente.
+SI NADA PASA: V11 = V10 en logica; se documenta el resultado nulo, no se fuerza una mejora.
+
+OPCION 3 (diagnostico, NO selecciona ninguna regla): funding de ETH 2024-03 -> 2026-10 (CSV del usuario, con 3 meses vacios: 2024-04, 2024-07, 2025-04, y 1 registro
+ en 2026-06). Para cada operacion de V10 en ese periodo: funding medio de las 24 h previas a la entrada vs resultado. Pocas operaciones: solo orientativo.

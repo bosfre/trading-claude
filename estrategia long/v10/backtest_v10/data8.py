@@ -4,7 +4,10 @@ El tramo nuevo (OOS2, desde 2026-01-11) queda SELLADO: load_series8(ext=False) d
 import numpy as np, pandas as pd, data as DT, eng
 from eng import Series
 import os
-W=os.path.join(os.path.dirname(os.path.abspath(__file__)),"datos_nuevos")+"/"
+_H=os.path.dirname(os.path.abspath(__file__))
+W=os.path.join(_H,"datos_nuevos")
+if not os.path.isdir(W): W=os.path.join(_H,"..","..","v9","backtest_v9","datos_nuevos")  # los datos antiguos viven en v9
+W=W+"/"
 TDF={"ETH":W+"td_eth_1h_raw.csv","BTC":W+"td_btc_1h_raw.csv","DOGE":W+"td_doge_1h_raw.csv"}
 OOS2_START=pd.Timestamp("2026-01-11")
 AGG={"open":"first","high":"max","low":"min","close":"last","volume":"sum"}
