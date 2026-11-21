@@ -18,7 +18,7 @@ Estructura de cada versión: informe, CSV de resultados/comparativas, `.pine` si
 ## Reproducir
 - Datos: `csvs/` en la raíz del repo (ETH 1h/4h/1d incluidos).
 - V10 y V11: `cd v10/backtest_v10` (o `cd v11`) y ejecutar los scripts. V11 reutiliza el motor de `v10/backtest_v10/` sin cambios (ver `v11/LEEME.md`).
-- V6–V9 leen ETH 15m desde `estrategia short/ETHUSDT_15m.csv`, que no está en el repo (ver «Pendiente»).
+- V6–V9 leen ETH 15m desde `csvs/ETHUSDT_15m.csv` (ya incluido); sus `data.py` cargan correctamente.
 
 ## Pendiente / no disponible en el repo
-Solo existían en los zips originales y no se han podido recuperar: informe de V6, Pine de V5, CSV extra de V9 (frontera, costes, mezcla, bootstrap, retorno anual, emulación TradingView, `v9_prereg`, `trials9`, log OOS), y de V11 `oos_access_log11.txt`, `trials11.jsonl`, `funding_eth.csv`, `test11.py`, `desc11.py`, `round11a.pkl`. `ETHUSDT_15m.csv` tampoco está, por lo que V6–V9 no se pueden reejecutar tal cual.
+Solo existían en los zips originales y no se han podido recuperar (se añaden si los subes): informe de V6, Pine de V5, CSV extra de V9 (frontera, costes, mezcla, bootstrap, retorno anual, emulación TradingView, `v9_prereg`, `trials9`, log OOS), y de V11 `oos_access_log11.txt`, `trials11.jsonl`, `funding_eth.csv`, `test11.py`, `desc11.py`, `round11a.pkl`. 
