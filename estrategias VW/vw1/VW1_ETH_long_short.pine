@@ -1,0 +1,335 @@
+//@version=6
+// =============================================================================
+// VW1 - ETH - LONG (perfil V10) + SHORT (perfil W10) en una sola estrategia
+// =============================================================================
+// QUÉ ES VW1:
+//   La fusión operativa de las dos estrategias desarrolladas por separado:
+//     LONG  = V10  (Donchian 140 h + EMA 800 h + filtro de régimen BTC > EMA 800 h; stop/trailing 5 ATR; TP 20 ATR; riesgo 5 %)
+//     SHORT = W10  (régimen close < EMA 600 barras de 4h + ruptura de mínimos | pullback fallido + filtro de volatilidad
+//                   + stop Chandelier; 1H con toma parcial 25 % a 1,5 ATR_eq)
+//   La lógica de entrada, salida y dimensionamiento de cada lado es la de su versión original, sin cambios. Los parámetros
+//   conservan sus unidades originales (LONG en HORAS, SHORT en "barras de 4h" escaladas por temporalidad) y sus valores por defecto.
+//
+// QUÉ CAMBIA RESPECTO A V10 Y W10 (solo lo imprescindible para convivir en un único script):
+//   1) Una sola declaración strategy(): comisión 0,08 % por lado y slippage 0 (el modelo de coste de W10: 0,05 % + 0,03 %),
+//      pyramiding 0, margin_long = margin_short = 50 (apalancamiento máx. 2x en los dos lados).
+//        - V10 en su Pine usaba 0,06 % + slippage de 2 ticks, y su backtest Python 6 pb + 6 pb + funding por lado: el LONG de VW1
+//          paga en TradingView algo más de comisión que en el Pine de V10, pero menos que en el backtest Python (sin funding).
+//   2) Una sola posición a la vez (posición neta de TradingView). Si hay un LONG abierto se ignoran las señales SHORT y al revés;
+//      NO se invierte la posición. Si en la misma barra coinciden señal LONG y señal SHORT, no se opera (se cuenta como conflicto).
+//      Esto significa que VW1 NO es la suma de los dos backtests: en las pruebas por separado cada lado tenía su propia cuenta y
+//      podía estar dentro a la vez que el otro. Las señales descartadas se cuentan en el panel de diagnóstico.
+//   3) Una sola ventana de test (inicio/fin) para los dos lados. W10 traía fin = 2026-12-31 (la estrategia dejaba de operar y cerraba
+//      ahí); aquí el fin por defecto es 2030-12-31 para no parar a final de año. No cambia ningún resultado histórico (los datos acaban en 2026).
+//   4) Interruptores 'Operar LONG' / 'Operar SHORT' (por defecto activos) para aislar cada perfil y comparar con V10 / W10 originales.
+//   5) Guarda de temporalidad global: solo 1H, 4H y 1D (las únicas validadas para W10 y para las cifras de V10).
+//   6) Panel de diagnóstico unificado.
+//   Los nombres de las variables de estado llevan prefijo lg (LONG) o sh (SHORT) para que no se pisen.
+//
+// REFERENCIAS (cada una medida POR SEPARADO, con su propio motor y costes; NO hay backtest conjunto de VW1 todavía):
+//   V10 LONG, ETH 2017-08 -> 2026-10, riesgo 5 %: 1H +1.431 % / DD -21,8 % | 4H +1.011 % / DD -17,6 % | 1D +483 % / DD -23,4 %   (informe_V10.md)
+//   W10 SHORT, ETH 2017-08 -> 2026-01, riesgo 1D 5 % / 4H 4 % / 1H 6 %: 1D +500 % / DD -20,6 % | 4H +403 % / DD -23,9 % | 1H +887 % / DD -17,6 %   (W10_resultados.md)
+//   Estas cifras NO se pueden sumar ni esperar de VW1: los motores, costes y tramos son distintos y la posición neta única cambia las operaciones.
+//
+// LIMITACIONES HONESTAS:
+//   * No compilada ni probada en TradingView desde este entorno de análisis. Compílala y revisa el panel antes de fiarte de nada.
+//   * Sin backtest conjunto: no se ha medido cuántas operaciones se pierden por la posición neta única, ni el DD combinado.
+//   * Validada solo en ETHUSDT. El filtro BTC del LONG usa BINANCE:BTCUSDT.
+//   * Funding de perpetuos NO incluido. Ejecución: señal al cierre, entrada en la apertura siguiente.
+//   * Todas las advertencias de V10 (resultado de 1D sensible al ancla del día, stop de 1D) y de W10 (evidencia 1D débil, toma parcial de 1H
+//     que el emulador de TradingView puede resolver distinto, 1H reciente) siguen vigentes.
+//   * Bajo riesgo de sobreajuste al combinar: no se ha tocado ningún parámetro. Cualquier cambio posterior debe validarse con TRAIN/VALIDACIÓN/OOS.
+// =============================================================================
+strategy("VW1 - ETH Long (V10) + Short (W10)", shorttitle = "VW1", overlay = true,
+     initial_capital = 10000, currency = currency.USD,
+     pyramiding = 0, default_qty_type = strategy.fixed, default_qty_value = 1,
+     commission_type = strategy.commission.percent, commission_value = 0.08,
+     slippage = 0, margin_long = 50, margin_short = 50,
+     process_orders_on_close = false, calc_on_every_tick = false)
+
+// ------------------------------- Nombres de grupos ----------------------------
+GRP_G   = "General"
+GRP_LP  = "LONG (V10) · Parámetros"
+GRP_LR  = "LONG (V10) · Riesgo"
+GRP_LB  = "LONG (V10) · Filtro BTC"
+GRP_SE  = "SHORT (W10) · Estrategia"
+GRP_SR  = "SHORT (W10) · Riesgo"
+GRP_SM  = "SHORT (W10) · Mejoras w9"
+
+// ================================== General ====================================
+useLong  = input.bool(true, "Operar LONG (perfil V10)", group = GRP_G)
+useShort = input.bool(true, "Operar SHORT (perfil W10)", group = GRP_G)
+startT   = input.time(timestamp("2017-08-17 00:00 +0000"), "Inicio del test", group = GRP_G)
+endT     = input.time(timestamp("2030-12-31 23:59 +0000"), "Fin del test", group = GRP_G, tooltip = "W10 traía 2026-12-31. Aquí 2030-12-31 para no dejar de operar a final de año; no cambia ningún resultado histórico.")
+showDiag = input.bool(true, "Mostrar panel de diagnóstico", group = GRP_G)
+
+// ============================ LONG (V10) · entradas ============================
+// ---- Parámetros (en HORAS, para que se comporten igual en 1H/4H/1D) ----
+lgN_h       = input.float(140, "Canal Donchian (horas)", group = GRP_LP)
+lgL_h       = input.float(800, "EMA de régimen (horas)", group = GRP_LP)
+lgATR_h     = input.float(56, "Ventana ATR (horas)", group = GRP_LP)
+lgRefHours  = input.float(4.0, "Horas de referencia del stop", group = GRP_LP)
+lgK         = input.float(5.0, "Multiplicador ATR (stop / trailing)", group = GRP_LP)
+lgTpMult    = input.float(20.0, "Take profit (múltiplos de ATR; 0 = sin TP)", minval = 0, group = GRP_LP)
+
+// ---- Riesgo ----
+lgRiskPreset = input.string("Manual", "Preset de riesgo", options = ["Manual", "DD ~15 % (1H 3,3 / 4H 4,2 / 1D 3,0)"], group = GRP_LR, tooltip = "Manual usa 'Riesgo por operación' (5 % = V9/V10). El otro preset aplica el riesgo según la temporalidad del gráfico para un drawdown máximo de ~15 % en el backtest 2017-2026 del LONG por separado.")
+lgRiskPctIn  = input.float(5.0, "Riesgo por operación (% equity) - solo en modo Manual", minval = 0.1, group = GRP_LR)
+lgMaxLevPct  = input.float(200, "Apalancamiento máximo (%)", minval = 1, group = GRP_LR)
+
+// ---- Filtro de régimen de BTC (desde V8) ----
+useBtcFilter = input.bool(true, "Filtro de régimen BTC (desactivado = V7)", group = GRP_LB)
+btcSym       = input.symbol("BINANCE:BTCUSDT", "Símbolo de BTC de referencia", group = GRP_LB)
+btcEmaHours  = input.float(800, "EMA de BTC (horas)", group = GRP_LB)
+
+// ============================ SHORT (W10) · entradas ===========================
+emaBase  = input.int(600,   "EMA de régimen (barras de 4h)", minval = 10, group = GRP_SE)
+lookBase = input.int(45,    "Ruptura: mínimo de N barras (barras de 4h)", minval = 5, group = GRP_SE)
+fastBase = input.int(40,    "EMA rápida del pullback 1H/4H (barras de 4h)", minval = 5, group = GRP_SE)
+fastD1   = input.int(55,    "EMA rápida del pullback 1D (barras de 4h)", minval = 5, group = GRP_SE)
+atrBase  = input.int(14,    "ATR (barras de 4h)", minval = 2, group = GRP_SE)
+multH1   = input.float(3.0, "Multiplicador ATR del stop 1H", minval = 0.5, step = 0.25, group = GRP_SE)
+multH4   = input.float(3.0, "Multiplicador ATR del stop 4H", minval = 0.5, step = 0.25, group = GRP_SE)
+multD1   = input.float(2.0, "Multiplicador ATR del stop 1D", minval = 0.5, step = 0.25, group = GRP_SE)
+
+volBase  = input.int(750,   "Filtro vol: ventana (barras de 4h)", minval = 50, group = GRP_SE)
+volPctH1 = input.float(65,  "Filtro vol 1H: percentil máximo de ATR%", minval = 50, maxval = 100, step = 5, group = GRP_SE)
+volPctH4 = input.float(75,  "Filtro vol 4H: percentil máximo de ATR%", minval = 50, maxval = 100, step = 5, group = GRP_SE)
+volPctD1 = input.float(70,  "Filtro vol 1D: percentil máximo de ATR%", minval = 50, maxval = 100, step = 5, group = GRP_SE)
+
+riskH1   = input.float(6.0, "Riesgo por operación 1H (% equity)", minval = 0.1, maxval = 15, step = 0.25, group = GRP_SR)
+riskH4   = input.float(4.0, "Riesgo por operación 4H (% equity)", minval = 0.1, maxval = 15, step = 0.25, group = GRP_SR)
+riskD1   = input.float(5.0, "Riesgo por operación 1D (% equity)", minval = 0.1, maxval = 15, step = 0.25, group = GRP_SR)
+shMaxLev = input.float(2.0, "Apalancamiento máximo (nocional/equity)", minval = 0.5, step = 0.5, group = GRP_SR)
+
+extH1    = input.float(9.0, "Filtro extensión 1H: máx (EMA régimen - close)/ATR_eq (0 = off)", minval = 0, step = 0.5, group = GRP_SM)
+extH4    = input.float(0.0, "Filtro extensión 4H (0 = off)", minval = 0, step = 0.5, group = GRP_SM)
+extD1    = input.float(0.0, "Filtro extensión 1D (0 = off)", minval = 0, step = 0.5, group = GRP_SM)
+tpPctH1  = input.float(25.0, "Toma parcial 1H: % de la posición (0 = off)", minval = 0, maxval = 90, step = 5, group = GRP_SM)
+tpPctH4  = input.float(0.0,  "Toma parcial 4H: % de la posición (0 = off)", minval = 0, maxval = 90, step = 5, group = GRP_SM)
+tpPctD1  = input.float(0.0,  "Toma parcial 1D: % de la posición (0 = off)", minval = 0, maxval = 90, step = 5, group = GRP_SM)
+shTpMult = input.float(1.5,  "Toma parcial: beneficio en ATR_eq", minval = 0.5, step = 0.25, group = GRP_SM)
+
+// ================================ Temporalidad =================================
+tfSec     = timeframe.in_seconds()
+tfMinutes = tfSec / 60
+tfHours   = tfMinutes / 60
+
+// Guarda: VW1 (como W10) solo está validada en 1H, 4H y 1D.
+if not (tfSec == 3600 or tfSec == 14400 or tfSec == 86400)
+    runtime.error("VW1 solo está validada en 1H, 4H y 1D. Cambia el timeframe del gráfico a uno de esos tres.")
+
+// =============================== LONG (V10) ====================================
+// ---- Conversión horas -> barras, con mínimos (idénticos a V3/V4/V6/V7/V8/V10) ----
+lgRiskPct = lgRiskPreset == "Manual" ? lgRiskPctIn : (tfHours < 3 ? 3.3 : (tfHours < 12 ? 4.2 : 3.0))
+lgRiskFrac = lgRiskPct / 100
+lgMaxLev   = lgMaxLevPct / 100
+barsN      = int(math.max(5, math.round(lgN_h * 60 / tfMinutes)))
+barsL      = int(math.max(20, math.round(lgL_h * 60 / tfMinutes)))
+barsATR    = int(math.max(10, math.round(lgATR_h * 60 / tfMinutes)))
+barsBtc    = int(math.max(20, math.round(btcEmaHours * 60 / tfMinutes)))
+atrScale   = math.sqrt(lgRefHours / tfHours)
+
+atrRaw       = ta.atr(barsATR)
+atrScaled    = atrRaw * atrScale
+donchianHigh = ta.highest(high, barsN)[1]
+emaRegime    = ta.ema(close, barsL)
+
+// Régimen de BTC (misma temporalidad del gráfico, sin mirar el futuro)
+btcClose   = request.security(btcSym, timeframe.period, close, lookahead = barmerge.lookahead_off)
+btcEma     = request.security(btcSym, timeframe.period, ta.ema(close, barsBtc), lookahead = barmerge.lookahead_off)
+btcMissing = na(btcClose) or na(btcEma)
+btcOk      = not useBtcFilter or btcMissing or btcClose > btcEma
+
+lgWarmedUp    = not na(donchianHigh) and not na(emaRegime) and not na(atrScaled) and atrScaled > 0
+ethSignal     = lgWarmedUp and close > donchianHigh and close > emaRegime
+longCondition = ethSignal and btcOk
+
+// =============================== SHORT (W10) ===================================
+// ---- Escalado por timeframe ("barras de 4h" -> barras del gráfico) ----
+f       = 14400.0 / tfSec                              // 1H -> 4 | 4H -> 1 | 1D -> 1/6
+emaLen  = int(math.floor(emaBase  * f + 0.5))
+lookLen = int(math.floor(lookBase * f + 0.5))
+fastLen = int(math.floor((tfSec == 86400 ? fastD1 : fastBase) * f + 0.5))
+atrLen  = math.max(int(math.floor(atrBase * f + 0.5)), 14)   // suelo de 14 barras (en 1D la escala daría 2)
+volLen  = int(math.floor(volBase * f + 0.5))
+shRiskPct = tfSec == 86400 ? riskD1   : tfSec == 14400 ? riskH4   : riskH1
+shMult    = tfSec == 86400 ? multD1   : tfSec == 14400 ? multH4   : multH1
+shVolPct  = tfSec == 86400 ? volPctD1 : tfSec == 14400 ? volPctH4 : volPctH1
+shExtMax  = tfSec == 86400 ? extD1    : tfSec == 14400 ? extH4    : extH1
+shTpPct   = tfSec == 86400 ? tpPctD1  : tfSec == 14400 ? tpPctH4  : tpPctH1
+
+// EMAs recursivas, sembradas con el primer cierre (== pandas ewm(adjust=False))
+alphaT   = 2.0 / (emaLen + 1)
+alphaF   = 2.0 / (fastLen + 1)
+var float emaTrend = na
+var float emaFast  = na
+emaTrend := na(emaTrend) ? close : alphaT * close + (1 - alphaT) * emaTrend
+emaFast  := na(emaFast)  ? close : alphaF * close + (1 - alphaF) * emaFast
+
+atrEq    = ta.atr(atrLen) * math.sqrt(f)
+prevLow  = ta.lowest(low, lookLen)[1]                  // mínimo de las N barras ANTERIORES (sin lookahead)
+
+// Filtro de volatilidad: ATR% frente a su percentil (interpolación lineal, == pandas quantile) de las volLen barras previas
+atrPct   = atrEq / close
+volThr   = ta.percentile_linear_interpolation(atrPct, volLen, shVolPct)
+volReady = bar_index >= atrLen + volLen - 1            // ventana completa de ATR% disponible
+volOk    = not volReady or not (atrPct > volThr[1])
+
+inWindow   = time >= startT and time <= endT
+shWarmedUp = bar_index >= emaLen                       // no operar hasta que la EMA de régimen lleve emaLen barras
+regime     = close < emaTrend
+sigBreak   = regime and close < prevLow
+sigPull    = regime and emaFast < emaTrend and close < emaFast and close[1] >= emaFast[1]
+extOk      = shExtMax <= 0 or ((emaTrend - close) / atrEq <= shExtMax)   // no vender movimientos ya muy extendidos bajo la EMA de régimen
+shRaw      = inWindow and shWarmedUp and volOk and extOk and not na(atrEq) and not na(prevLow) and (sigBreak or sigPull)
+
+// ============================ Señales de entrada finales =======================
+lgSignal = useLong and inWindow and longCondition
+shSignal = useShort and shRaw
+bothSig  = lgSignal and shSignal
+
+// ============================== Estado de cada lado ============================
+// LONG (V10)
+var float lgStopPrice = na
+var float lgHighest   = na
+var float lgAtrEntry  = na
+var float lgEntryRef  = na
+var bool  lgPending   = false
+var int   lgPendingBar = 0
+// SHORT (W10)
+var float shStopPx   = na
+var float shLowSince = na
+
+// Contadores de diagnóstico
+var int btcMissingBars = 0
+var int blockedBars    = 0
+var int totalBars      = 0
+var int nLongEntries   = 0
+var int nShortEntries  = 0
+var int nConflicts     = 0
+var int nLongIgnored   = 0     // señal LONG descartada por tener un SHORT abierto
+var int nShortIgnored  = 0     // señal SHORT descartada por tener un LONG abierto
+totalBars += 1
+if useBtcFilter and btcMissing
+    btcMissingBars += 1
+if ethSignal and not btcOk and strategy.position_size == 0
+    blockedBars += 1
+if lgSignal and strategy.position_size < 0
+    nLongIgnored += 1
+if shSignal and strategy.position_size > 0
+    nShortIgnored += 1
+
+// LONG: la orden de entrada se ejecuta en la apertura siguiente: mientras esté pendiente no se debe borrar el estado.
+if strategy.position_size > 0
+    lgPending := false
+if lgPending and strategy.position_size == 0 and bar_index > lgPendingBar + 1
+    lgPending := false
+
+// ================================ Gestión LONG (V10) ===========================
+if strategy.position_size > 0
+    if na(lgEntryRef)
+        // primera barra con posición: precio real de entrada y stop inicial = entrada - k x ATR(señal)
+        lgEntryRef := strategy.position_avg_price
+        lgStopPrice := lgEntryRef - lgK * lgAtrEntry
+        lgHighest := lgEntryRef
+    lgHighest := math.max(lgHighest, high)
+    lgCandidateStop = lgHighest - lgK * atrScaled
+    lgStopPrice := math.max(lgStopPrice, lgCandidateStop)
+    strategy.exit("Salida", from_entry = "Long", stop = lgStopPrice)
+    // Take profit evaluado al cierre; se ejecuta en la apertura siguiente (igual que en el backtest)
+    if lgTpMult > 0 and not na(lgAtrEntry) and close >= lgEntryRef + lgTpMult * lgAtrEntry
+        strategy.close_all(comment = "TP")
+
+// ================================ Gestión SHORT (W10) ==========================
+if strategy.position_size < 0
+    shLowSince := na(shLowSince) ? low : math.min(shLowSince, low)
+    shStopPx   := math.min(shStopPx, shLowSince + shMult * atrEq)
+    strategy.exit("SL", "Short", stop = shStopPx)
+
+// ==================================== Entradas =================================
+// Solo se entra con la cuenta plana y sin orden LONG pendiente. Si coinciden señal LONG y SHORT en la misma barra, no se opera.
+isFlat = strategy.position_size == 0 and not lgPending
+if isFlat and bothSig
+    nConflicts += 1
+
+// ---- LONG (V10) ----
+if isFlat and lgSignal and not bothSig
+    stopDist   = lgK * atrScaled
+    stopPctVal = stopDist / close
+    validStop  = not na(stopPctVal) and stopPctVal > 0.0005
+    if validStop
+        sizeFrac = math.min(lgMaxLev, lgRiskFrac / stopPctVal)
+        qty = strategy.equity * sizeFrac / close
+        if not na(qty) and qty > 0 and qty < 900000000
+            strategy.entry("Long", strategy.long, qty = qty)
+            lgPending := true
+            lgPendingBar := bar_index
+            lgAtrEntry := atrScaled
+            lgEntryRef := na
+            nLongEntries += 1
+
+// ---- SHORT (W10) ----
+if isFlat and shSignal and not bothSig
+    float dist     = shMult * atrEq / close
+    float notional = math.min(shMaxLev * strategy.equity, (shRiskPct / 100.0) * strategy.equity / dist)
+    float qtyS     = notional / close
+    shStopPx   := close + shMult * atrEq
+    shLowSince := na
+    nShortEntries += 1
+    strategy.entry("Short", strategy.short, qty = qtyS)
+    strategy.exit("SL", "Short", stop = shStopPx)         // se activa en cuanto se ejecuta la entrada
+    if shTpPct > 0
+        strategy.exit("TP", "Short", qty_percent = shTpPct, limit = close - shTpMult * atrEq)   // toma parcial (una sola vez)
+
+// Reinicia el estado del LONG cuando no hay posición ni orden pendiente
+if strategy.position_size == 0 and not lgPending
+    lgStopPrice := na
+    lgHighest   := na
+    lgAtrEntry  := na
+    lgEntryRef  := na
+
+// Cierre al final de la ventana de test (cualquier lado)
+if time > endT and strategy.position_size != 0
+    strategy.close_all(comment = "Fin ventana")
+
+// ================================== Gráficos ===================================
+plot(donchianHigh, "LONG · Canal Donchian", color = color.new(color.blue, 0), linewidth = 1)
+plot(emaRegime, "LONG · EMA régimen", color = color.new(color.orange, 0), linewidth = 1)
+plot(strategy.position_size > 0 ? lgStopPrice : na, "LONG · Stop / Trailing", color = color.new(color.red, 0), style = plot.style_circles, linewidth = 2)
+plot(strategy.position_size > 0 and lgTpMult > 0 and not na(lgEntryRef) ? lgEntryRef + lgTpMult * lgAtrEntry : na, "LONG · Take profit", color = color.new(color.green, 0), style = plot.style_circles, linewidth = 1)
+plot(emaTrend, "SHORT · EMA régimen", color = color.new(color.maroon, 0), linewidth = 2)
+plot(emaFast, "SHORT · EMA rápida", color = color.new(color.aqua, 30), linewidth = 1)
+plot(strategy.position_size < 0 ? shStopPx : na, "SHORT · Stop trailing", color = color.new(color.fuchsia, 0), style = plot.style_linebr, linewidth = 2)
+bgcolor(lgSignal and not bothSig and isFlat ? color.new(color.green, 85) : na)
+// Sombrea en rojo claro las barras en las que el filtro de BTC bloquea una señal que ETH sí daría
+bgcolor(ethSignal and not btcOk and strategy.position_size == 0 ? color.new(color.red, 88) : na)
+plotshape(shSignal and not bothSig and isFlat and sigBreak, title = "SHORT · Señal ruptura", style = shape.triangledown, location = location.abovebar, color = color.red, size = size.tiny)
+plotshape(shSignal and not bothSig and isFlat and not sigBreak, title = "SHORT · Señal pullback", style = shape.triangledown, location = location.abovebar, color = color.purple, size = size.tiny)
+
+// ============================ Panel de diagnóstico =============================
+var int   firstT = time
+var table diag   = table.new(position.top_right, 2, 15, bgcolor = color.new(color.black, 15), border_width = 1)
+
+diagRow(table t, int row, string label, string value, color valueColor) =>
+    table.cell(t, 0, row, label, text_color = color.white, text_halign = text.align_left, text_size = size.small)
+    table.cell(t, 1, row, value, text_color = valueColor, text_halign = text.align_left, text_size = size.small)
+
+if showDiag and barstate.islast
+    btcTxt = not useBtcFilter ? "DESACTIVADO (= V7)" : (btcMissingBars > 0 ? "ACTIVO, pero faltan datos de BTC en " + str.tostring(btcMissingBars) + " de " + str.tostring(totalBars) + " barras (ahí NO bloquea)" : "ACTIVO con datos de BTC en todas las barras")
+    btcCol = (useBtcFilter and btcMissingBars > 0) ? color.orange : color.yellow
+    diagRow(diag, 0, "VW1 · diagnóstico", syminfo.tickerid, color.yellow)
+    diagRow(diag, 1, "Temporalidad | operar LONG | operar SHORT", str.tostring(tfHours, "#.##") + " h | " + str.tostring(useLong) + " | " + str.tostring(useShort), color.yellow)
+    diagRow(diag, 2, "Barras cargadas | primera barra", str.tostring(bar_index + 1) + " | " + str.format_time(firstT, "yyyy-MM-dd"), color.yellow)
+    diagRow(diag, 3, "Posición abierta (+ LONG / - SHORT)", str.tostring(strategy.position_size), color.yellow)
+    diagRow(diag, 4, "Operaciones cerradas", str.tostring(strategy.closedtrades), color.yellow)
+    diagRow(diag, 5, "LONG · riesgo aplicado", str.tostring(lgRiskPct, "#.0") + " %", color.aqua)
+    diagRow(diag, 6, "LONG · filtro BTC", btcTxt, btcCol)
+    diagRow(diag, 7, "LONG · señales de ETH bloqueadas por BTC", str.tostring(blockedBars), color.aqua)
+    diagRow(diag, 8, "LONG · entradas enviadas", str.tostring(nLongEntries), color.aqua)
+    diagRow(diag, 9, "SHORT · EMA / rápida / ruptura / ATR (barras)", str.format("{0} / {1} / {2} / {3}", emaLen, fastLen, lookLen, atrLen), color.fuchsia)
+    diagRow(diag, 10, "SHORT · entradas enviadas", str.tostring(nShortEntries), color.fuchsia)
+    diagRow(diag, 11, "SHORT · ahora: régimen | ruptura | pullback", str.tostring(regime) + " | " + str.tostring(sigBreak) + " | " + str.tostring(sigPull), color.fuchsia)
+    diagRow(diag, 12, "SHORT · vol OK | riesgo % | mult | percentil vol | ext | TP%", str.tostring(volOk) + " | " + str.tostring(shRiskPct) + " | " + str.tostring(shMult) + " | " + str.tostring(shVolPct) + " | " + str.tostring(shExtMax) + " | " + str.tostring(shTpPct), color.fuchsia)
+    diagRow(diag, 13, "Conflictos (señal LONG y SHORT a la vez: no se opera)", str.tostring(nConflicts), color.white)
+    diagRow(diag, 14, "Señales descartadas por posición contraria (LONG | SHORT)", str.tostring(nLongIgnored) + " | " + str.tostring(nShortIgnored), color.white)
