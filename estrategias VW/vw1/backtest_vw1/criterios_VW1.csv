@@ -1,0 +1,11 @@
+criterio,descripcion,cumple,detalle
+C1,pérdida de operaciones por solapamiento < 20 % en cada lado,True,"1h: long 0.0 %, short 9.1 %; 4h: long 0.0 %, short 6.5 %; 1d: long 0.0 %, short 7.8 %"
+C2,Calmar FULL de VW1 > el de A y B en >=2 de 3 TF,True,1h: VW1 2.96 vs V10 1.84 / W10 1.27; 4h: VW1 2.14 vs V10 1.84 / W10 0.79; 1d: VW1 1.75 vs V10 1.03 / W10 0.88
+C3,"en TRAIN, VAL y OOS1, ret(VW1) >= mejor de A/B en >=2 de 3 TF",True,TRAIN: 3/3 (1h 2208 % vs 599 %; 4h 1388 % vs 395 %; 1d 708 % vs 290 %) | VAL: 3/3 (1h 94 % vs 71 %; 4h 91 % vs 46 %; 1d 118 % vs 73 %) | OOS1: 3/3 (1h 157 % vs 84 %; 4h 77 % vs 72 %; 1d 113 % vs 78 %)
+C4,con costes x2 y x3: Calmar > 1 y rentabilidad > 0 en las 3 TF,True,"x2 1h: Calmar 2.46, ret 10356 %; x2 4h: Calmar 1.88, ret 4276 %; x2 1d: Calmar 1.44, ret 2581 %; x3 1h: Calmar 1.90, ret 7141 %; x3 4h: Calmar 1.64, ret 3025 %; x3 1d: Calmar 1.16, ret 1892 %"
+C5,DD de VW1 no supera el mayor de A/B en más de 5 pp,True,"1h: VW1 24.8 % vs max(A,B) 22.9 % (dif +1.9 pp); 4h: VW1 26.6 % vs max(A,B) 26.4 % (dif +0.2 pp); 1d: VW1 27.5 % vs max(A,B) 23.4 % (dif +4.1 pp)"
+D,"VW1-flip supera a VW1 en Calmar en TRAIN, VAL y OOS1 a la vez en >=2 de 3 TF (si no, se descarta)",False,"1h: D>C en VAL,OOS1; 4h: D>C en VAL,OOS1; 1d: D>C en OOS1"
+C2 (orig),Calmar FULL de VW1 > el de A y B en >=2 de 3 TF,True,1h: VW1 2.68 vs V10 1.54 / W10 1.27; 4h: VW1 2.02 vs V10 1.62 / W10 0.79; 1d: VW1 1.64 vs V10 0.92 / W10 0.88
+C3 (orig),"en TRAIN, VAL y OOS1, ret(VW1) >= mejor de A/B en >=2 de 3 TF",True,TRAIN: 3/3 (1h 2050 % vs 551 %; 4h 1295 % vs 363 %; 1d 664 % vs 268 %) | VAL: 3/3 (1h 85 % vs 71 %; 4h 84 % vs 46 %; 1d 111 % vs 73 %) | OOS1: 3/3 (1h 129 % vs 84 %; 4h 70 % vs 65 %; 1d 105 % vs 78 %)
+C5 (orig),DD de VW1 no supera el mayor de A/B en más de 5 pp,True,"1h: VW1 25.6 % vs max(A,B) 22.9 % (dif +2.7 pp); 4h: VW1 26.9 % vs max(A,B) 26.4 % (dif +0.5 pp); 1d: VW1 28.1 % vs max(A,B) 23.4 % (dif +4.7 pp)"
+D (orig),"VW1-flip supera a VW1 en Calmar en TRAIN, VAL y OOS1 a la vez en >=2 de 3 TF (si no, se descarta)",False,"1h: D>C en VAL,OOS1; 4h: D>C en VAL,OOS1; 1d: D>C en OOS1"

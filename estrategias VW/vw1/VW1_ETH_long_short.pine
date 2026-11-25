@@ -26,14 +26,17 @@
 //   6) Panel de diagnóstico unificado.
 //   Los nombres de las variables de estado llevan prefijo lg (LONG) o sh (SHORT) para que no se pisen.
 //
-// REFERENCIAS (cada una medida POR SEPARADO, con su propio motor y costes; NO hay backtest conjunto de VW1 todavía):
-//   V10 LONG, ETH 2017-08 -> 2026-10, riesgo 5 %: 1H +1.431 % / DD -21,8 % | 4H +1.011 % / DD -17,6 % | 1D +483 % / DD -23,4 %   (informe_V10.md)
-//   W10 SHORT, ETH 2017-08 -> 2026-01, riesgo 1D 5 % / 4H 4 % / 1H 6 %: 1D +500 % / DD -20,6 % | 4H +403 % / DD -23,9 % | 1H +887 % / DD -17,6 %   (W10_resultados.md)
-//   Estas cifras NO se pueden sumar ni esperar de VW1: los motores, costes y tramos son distintos y la posición neta única cambia las operaciones.
+// BACKTEST CONJUNTO (Python, ETH 2017-08-17 -> 2026-10-03, comisión 0,08 % por lado, sin slippage ni funding; ver informe_VW1_backtest.md):
+//   VW1 con los riesgos por defecto: 1H +14.990 % / DD -24,8 % | 4H +6.026 % / DD -26,6 % | 1D +3.506 % / DD -27,5 %   (Calmar 2,96 / 2,14 / 1,75)
+//   Por separado, mismo motor y costes: V10 1H +1.699 % / 4H +1.060 % / 1D +580 %  |  W10 1H +928 % / 4H +468 % / 1D +455 %
+//   Con la posición neta única se pierde un 6,5-9 % de las entradas SHORT y ninguna LONG. La ventaja de Calmar de VW1 sobre cada lado por separado
+//   está concentrada en 2017-2021; en 2024-2026 rinde más pero con más DD y el Calmar no siempre es mejor (4H y 1D). Planifica DD de 35-45 %.
+//   Referencias anteriores (motores y costes distintos, no comparables): V10 LONG 1H +1.431 % / 4H +1.011 % / 1D +483 % (informe_V10.md); W10 SHORT 1D +500 % / 4H +403 % / 1H +887 % (W10_resultados.md).
 //
 // LIMITACIONES HONESTAS:
 //   * No compilada ni probada en TradingView desde este entorno de análisis. Compílala y revisa el panel antes de fiarte de nada.
-//   * Sin backtest conjunto: no se ha medido cuántas operaciones se pierden por la posición neta única, ni el DD combinado.
+//   * El backtest conjunto es de Python con las convenciones de los motores de V10 y W10: TradingView dará otras cifras (datos de velas, emulador de órdenes,
+//     indicadores). Compara con la tabla del apartado 8 de informe_VW1_backtest.md y pon el rango del gráfico desde 2017-08-17.
 //   * Validada solo en ETHUSDT. El filtro BTC del LONG usa BINANCE:BTCUSDT.
 //   * Funding de perpetuos NO incluido. Ejecución: señal al cierre, entrada en la apertura siguiente.
 //   * Todas las advertencias de V10 (resultado de 1D sensible al ancla del día, stop de 1D) y de W10 (evidencia 1D débil, toma parcial de 1H

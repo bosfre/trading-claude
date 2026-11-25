@@ -1,0 +1,4 @@
+VW1 - registro de accesos a ventanas de validacion / holdouts
+2026-11-24  Backtest conjunto VW1 (run_vw1.py): se miden TRAIN, VAL, OOS1 (2024-01 -> 2026-01-10) y OOS2 (2026-01-11 -> 2026-10-03) con DESCRIPCION; ningun parametro de V10 ni de W10 se ha tocado ni elegido con ellas.
+2026-11-24  OOS2 (2026) no se habia abierto nunca para el SHORT (W9/W10/W11 usaban CSV hasta 2026-01-10). Para el LONG, OOS1 y OOS2 ya eran conocidos desde V8/V9/V10 (ver oos_access_log de V10).
+2026-11-24  La unica decision tomada con resultados a la vista fue DESCARTAR la variante VW1-flip, por el criterio fijado antes de ejecutar (vw1_prereg.txt). No existe OOS virgen para VW1.

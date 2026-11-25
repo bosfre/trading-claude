@@ -1,0 +1,31 @@
+VW1 - PRE-REGISTRO DEL BACKTEST CONJUNTO (escrito el 2026-11-24 ANTES de ejecutar el backtest conjunto)
+
+Objeto: medir VW1 (LONG V10 + SHORT W10, una cuenta, una posición neta, sin inversión) y compararla con V10 sola y W10 sola.
+No se cambia ningún parámetro de V10 ni de W10. Lo único que se mide es el efecto de juntarlos.
+
+Motor: eng_vw.py. Validado antes (validate_vw1.py): con un solo lado activo reproduce V10 (1H +1431,08 % / 4H +1010,59 % / 1D +483,23 %, igualdad exacta de la curva de equity)
+y W10 (1H +880,47 % / 4H +403,21 % / 1D +500,31 %, diferencias de equity < 1e-14).
+
+Datos: ETH y BTC 1h/4h/1d de csvs/ + Twelve Data 2026-01 -> 2026-10-03 (el mismo tramo que V10).
+Tramos (los fijados a priori en V10/W): TRAIN 2017-08-17 -> 2021-12-31 | VAL 2022-2023 | OOS1 2024-01-01 -> 2026-01-10 | OOS2 2026-01-11 -> 2026-10-03 | ORIG = TRAIN+VAL+OOS1 | FULL = todo.
+Estado de los tramos: para el LONG no existe OOS virgen (V10 ya los usó como descripción; ver oos_access_log de V10). Para el SHORT, OOS2 (2026) no se había abierto en W9/W10/W11; se abre aquí
+SOLO para describir y no se usa para elegir nada.
+
+Modelos de ejecución y costes:
+  'pine' (el principal, el que declara el Pine VW1): comisión 0,08 % por lado, slippage 0, sin funding; el stop del LONG no vale en la barra de relleno (como en el Pine de V10);
+         entrada solo con la cuenta plana al cierre anterior (semántica Pine).
+  'orig' (comparable con los informes anteriores): costes de cada motor (LONG 6 pb + 6 pb, stop con slippage doble, funding 0,005 %/8 h; SHORT 5 pb + 3 pb, sin funding); stop del LONG ya en la barra de relleno.
+  Estrés de costes (modelo 'pine'): x2 y x3 sobre comisión.
+
+Escenarios (los mismos parámetros en todos): A = V10 sola, B = W10 sola, C = VW1 (conjunta), D = VW1-flip (variante única, ver abajo), E = 50/50 de A y B en cuentas independientes (referencia, no es una estrategia ejecutable en un solo gráfico).
+Riesgos: los de cada versión (LONG 5 %; SHORT 1D 5 % / 4H 4 % / 1H 6 %). Apalancamiento máx. 2x por lado.
+
+Criterios de lectura fijados antes de ver los resultados (se informa de todos, salgan como salgan):
+  C1 Solapamiento: pérdida de operaciones de cada lado en VW1 respecto a su versión sola < 20 %.
+  C2 Calidad: Calmar de VW1 (ventana FULL, modelo 'pine') > Calmar de A y de B en al menos 2 de las 3 temporalidades.
+  C3 Consistencia: en cada una de TRAIN, VAL y OOS1, la rentabilidad de VW1 >= la de la mejor de A/B en al menos 2 de 3 temporalidades (y se informa de las que no).
+  C4 Costes: con costes x2 y x3, VW1 mantiene Calmar > 1 y rentabilidad positiva en las 3 temporalidades.
+  C5 Drawdown: el DD máximo de VW1 en FULL no supera el mayor de A y B en más de 5 puntos porcentuales en ninguna temporalidad.
+Variante D (VW1-flip): con una posición abierta, la señal del lado contrario cierra y abre la contraria. Es UNA sola variante, sin parámetros nuevos. Solo se consideraría
+mejora si supera a VW1 en Calmar en TRAIN, VAL y OOS1 a la vez en al menos 2 de 3 temporalidades; si no, se descarta. No se reabre ni se retoca.
+Prohibido: cambiar parámetros de V10/W10, añadir filtros o reglas, o elegir temporalidad/ventana mirando resultados.

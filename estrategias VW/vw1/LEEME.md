@@ -32,12 +32,28 @@ Verificado (revisión estática, sin compilador de Pine):
 
 **No** verificado:
 - **No se ha compilado ni ejecutado en TradingView.** Hazlo antes de fiarte de nada y mira el panel.
-- **No existe backtest conjunto de VW1.** Las cifras de V10 (p. ej. 1H +1.431 %, 4H +1.011 %, 1D +483 % a riesgo 5 %) y de W10 (1H +887 %, 4H +403 %, 1D +500 %) se midieron por separado, con motores, costes y tramos distintos, cada una en su propia cuenta. **No se pueden sumar** ni esperar de VW1: la posición neta única descarta operaciones que antes se tomaban.
-- No se ha medido cuántas señales se pierden por solapamiento ni el drawdown conjunto.
 - Heredadas y vigentes: sensibilidad de 1D al ancla del día (V10), evidencia 1D débil y toma parcial de 1H que el emulador puede resolver distinto (W10); sin funding; solo ETHUSDT.
+
+## Backtest conjunto (Python)
+
+Informe completo: [`informe_VW1_backtest.md`](informe_VW1_backtest.md). Código, CSV y pre-registro: [`backtest_vw1/`](backtest_vw1/). Motor validado: con un solo lado activo reproduce V10 y W10 con igualdad exacta de la curva de equity.
+
+Con comisión 0,08 % por lado, ETH 2017-08-17 → 2026-10-03, riesgos por defecto:
+
+| TF | VW1 rent. / DD | Calmar VW1 | Calmar V10 sola | Calmar W10 sola | Entradas SHORT perdidas por la posición única |
+|---|---:|---:|---:|---:|---:|
+| 1H | +14.990 % / −24,8 % | 2,96 | 1,84 | 1,27 | 9,1 % |
+| 4H | +6.026 % / −26,6 % | 2,14 | 1,84 | 0,79 | 6,5 % |
+| 1D | +3.506 % / −27,5 % | 1,75 | 1,03 | 0,88 | 7,8 % |
+
+- V10 y W10 casi nunca están dentro a la vez (0,5-0,7 % de las barras), así que la regla de una posición cuesta poco y solo al SHORT; el LONG no pierde ninguna entrada.
+- Se cumplen los cinco criterios pre-registrados (C1-C5), también con costes ×2 y ×3. La variante con inversión de posición (VW1-flip) no supera el criterio y se descarta.
+- **Matiz importante:** la ventaja de Calmar sobre cada lado por separado está concentrada en TRAIN (2017-21). Por tramos, el Calmar de VW1 supera al del mejor componente en 3/3 TF en TRAIN, 2/3 en VAL, 1/3 en OOS1 (2024→2026-01) y 3/3 en OOS2 (2026, 9 meses). Fuera de muestra VW1 rinde más pero con más DD. En 4H el SHORT es el eslabón débil.
+- El DD de VW1 es entre 0,2 y 4,1 puntos mayor que el del peor de sus componentes; el remuestreo de operaciones da DD mediano −26 % y 5 % peor −39 % a −41 %.
+- Cifras esperadas para comparar con TradingView: apartado 8 del informe. No habrá coincidencia exacta (datos, emulador, indicadores); pon el rango desde 2017-08-17.
 
 ## Siguientes pasos naturales
 
-1. Compilar en TradingView (1H, 4H, 1D) y comprobar que con `Operar SHORT` desactivado reproduce V10, y con `Operar LONG` desactivado reproduce W10 (con la diferencia de costes del punto 1).
-2. Backtest conjunto en Python (equity única, posición neta) con TRAIN / VALIDACIÓN / OOS, midiendo solapamientos, DD combinado y coste de la regla "no invertir", comparado con V10 y W10 por separado.
-3. Decidir si el SHORT debe pasar a W11 (stop por tipo de entrada, 1H sin toma parcial; ver `estrategia short/w11/W11_resultados.md`) y si se permite invertir la posición. Cualquier cambio debe validarse fuera de muestra; en esta versión no se ha tocado ningún parámetro.
+1. Compilar en TradingView (1H, 4H, 1D) y comparar con la tabla del apartado 8 del informe; comprobar también que con `Operar SHORT` desactivado se parece a V10 y con `Operar LONG` desactivado a W10 (con la diferencia de costes del punto 1).
+2. Decidir si el SHORT debe pasar a W11 (stop por tipo de entrada, 1H sin toma parcial; ver `estrategia short/w11/W11_resultados.md`) como VW2. Cualquier cambio debe medirse con el mismo motor conjunto (`backtest_vw1/`) y validarse fuera de muestra; en VW1 no se ha tocado ningún parámetro.
+3. Investigar por qué el Calmar fuera de muestra (OOS1) no mejora en 4H y 1D, antes de añadir más lógica.
